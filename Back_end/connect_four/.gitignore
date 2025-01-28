@@ -1,0 +1,25 @@
+# Ignorar directorios y archivos generados por Cargo
+/target/
+**/*.rs.bk
+
+# Ignorar archivos de configuración y editor específicos
+*.rs.bk
+**/*.rs.bk
+*.swp
+*.swo
+*.tmp
+*.log
+*.lock
+# Ignorar carpetas específicas de IDEs/editores
+.idea/
+.vscode/
+*.iml
+
+# Ignorar archivos de pruebas y compilaciones intermedias
+/tests/
+*.o
+*.rlib
+
+# Ignorar archivos de sistema
+.DS_Store
+Thumbs.db
