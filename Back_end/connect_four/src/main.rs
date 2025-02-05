@@ -1,4 +1,4 @@
-use std::io;
+/*use std::io;
 #[derive(Debug)]
 enum Player {
     PlayerUno,
@@ -105,6 +105,7 @@ impl Matrix {
         false // Si no se encontró victoria
     }
 }
+
 fn main() {
     let mut player: Player = Player::PlayerUno;
     let mut juego: Matrix = Matrix::new();
@@ -136,7 +137,7 @@ fn main() {
             Player::PlayerDos => player = Player::PlayerUno,
         }
     }
-}
+} 
 fn ask_input() -> usize {
     loop {
         // Bucle infinito hasta que se retorne un valor
@@ -157,4 +158,52 @@ fn ask_input() -> usize {
             }
         }
     }
+}
+*/
+use std::rc::Rc;
+use std::cell::RefCell;
+
+// Estructura de datos del sensor
+#[derive(Debug)]
+struct SensorData {
+    temperatura: f32,
+    presion: f32,
+}
+
+impl SensorData {
+    fn new(temp: f32, pres: f32) -> Self {
+        Self { temperatura: temp, presion: pres }
+    }
+
+    fn actualizar(&mut self, temp: f32, pres: f32) {
+        self.temperatura = temp;
+        self.presion = pres;
+    }
+}
+
+fn main() {
+    // Asignación en heap con Box
+    let sensor = Box::new(SensorData::new(22.5, 1013.2));
+
+    // Compartir con Rc y permitir mutabilidad con RefCell
+    let sensor_compartido = Rc::new(RefCell::new(*sensor));
+
+    // Clonar la referencia para otro módulo
+    let sensor_modulo_1 = Rc::clone(&sensor_compartido);
+    let sensor_modulo_2 = Rc::clone(&sensor_compartido);
+
+    // Módulo 1 lee los datos
+    {
+        let datos = sensor_modulo_1.borrow();
+        println!("Datos actuales: {:?}", *datos);
+    }
+
+    // Módulo 2 actualiza los datos
+    {
+        let mut datos = sensor_modulo_2.borrow_mut();
+        datos.actualizar(24.0, 1010.8);
+    }
+
+    // Verificar actualización desde cualquier referencia
+    println!("Datos actualizados: {:?}", sensor_compartido.borrow());
 }
