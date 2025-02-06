@@ -1,0 +1,26 @@
+# Compilados y binarios
+/target/
+**/*.rs.bk
+
+# Archivos de depuración y compilación
+debug.log
+cargo-lock.json
+Cargo.lock
+
+# Archivos generados por cargo
+**/Cargo.lock
+**/target/
+**/debug/
+**/release/
+
+# Archivos del IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Archivos de dependencias y caché
+/.cargo/
+/.cargo/
+/rustup/
+/target/
