@@ -7,6 +7,9 @@ mod entities;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+
+
+        
     // Inicializa la conexión a la base de datos.
     // La función init_db se asegura de que solo se cree una única instancia (singleton).
     let database = db::init_db()
