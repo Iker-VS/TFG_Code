@@ -2,7 +2,7 @@ db.createCollection("zones", {
     validator: {
       $jsonSchema: {
         bsonType: "object",
-        required: [ "name", "private", "propertyId" ],
+        required: [ "name", "propertyId" ],
         properties: {
           _id: {
             bsonType: "objectId"
@@ -10,10 +10,6 @@ db.createCollection("zones", {
           name: {
             bsonType: "string",
             description: "Nombre de la zona"
-          },
-          private: {
-            bsonType: "bool",
-            description: "Indica si la zona es privada"
           },
           propertyId: {
             bsonType: "objectId",

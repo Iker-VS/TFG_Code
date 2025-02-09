@@ -2,7 +2,7 @@ db.createCollection("properties", {
     validator: {
       $jsonSchema: {
         bsonType: "object",
-        required: [ "name", "private", "groupId" ],
+        required: [ "name", "groupId" ],
         properties: {
           _id: {
             bsonType: "objectId"
@@ -14,10 +14,6 @@ db.createCollection("properties", {
           direction: {
             bsonType: "string", 
             description: "Dirección (opcional)"
-          },
-          private: {
-            bsonType: "bool",
-            description: "Indica si la propiedad es privada"
           },
           groupId: {
             bsonType: "objectId",
