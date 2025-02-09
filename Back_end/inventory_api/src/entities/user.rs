@@ -1,6 +1,9 @@
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
-use mongodb::{bson::{doc, oid::ObjectId}, Database};
+use mongodb::{
+    bson::{doc, oid::ObjectId},
+    Database,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,7 +33,7 @@ impl User {
 #[get("/users")]
 async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<User>("users");
-    let cursor = match collection.find(doc!{}).await {
+    let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -67,7 +70,11 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 }
 
 #[put("/users/{id}")]
-async fn update_user_handler(db: web::Data<Database>, path: web::Path<String>, updated_user: web::Json<User>) -> impl Responder {
+async fn update_user_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_user: web::Json<User>,
+) -> impl Responder {
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -81,7 +88,10 @@ async fn update_user_handler(db: web::Data<Database>, path: web::Path<String>, u
             "admin": updated_user.admin,
         }
     };
-    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Usuario actualizado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),

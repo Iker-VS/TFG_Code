@@ -7,22 +7,18 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Log {
+pub struct UserGroup {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
-    pub description: String,
-    pub time: DateTime,
     #[serde(rename = "groupId")]
     pub group_id: ObjectId,
     #[serde(rename = "userId")]
     pub user_id: ObjectId,
 }
-impl Log {
-    fn new(description: String, time: DateTime, group_id: ObjectId, user_id: ObjectId) -> Log {
+impl UserGroup {
+    fn new(group_id: ObjectId, user_id: ObjectId) -> UserGroup {
         Self {
             id: None,
-            description,
-            time,
             group_id,
             user_id,
         }
