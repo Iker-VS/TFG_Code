@@ -1,3 +1,5 @@
+use std::collections;
+
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -5,6 +7,9 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
+use tokio::task::Id;
+
+use super::{group, user_group::{self, UserGroup}};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -33,7 +38,7 @@ impl User {
 #[get("/users")]
 async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<User>("users");
-    let cursor = match collection.find(doc! {}).await {
+    let cursor = match collection.find(doc! {}).await{
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -42,17 +47,6 @@ async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     HttpResponse::Ok().json(users)
-}
-
-#[post("/users")]
-async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
-    let collection = db.collection::<User>("users");
-    let mut user = new_user.into_inner();
-    user.id = None;
-    match collection.insert_one(user).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-    }
 }
 
 #[get("/users/{id}")]
@@ -68,6 +62,20 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
+
+
+#[post("/users")]
+async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
+    let collection = db.collection::<User>("users");
+    let mut user = new_user.into_inner();
+    user.id = None;
+    match collection.insert_one(user).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+
 
 #[put("/users/{id}")]
 async fn update_user_handler(

@@ -54,3 +54,30 @@ impl Item {
         }
     }
 }
+#[get("/items")]
+async fn get_items_handler(db: web::Data<Database>) -> impl Responder {
+    let collection = db.collection::<Item>("items");
+    let cursor = match collection.find(doc! {}).await {
+        Ok(cursor) => cursor,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let items: Vec<Item> = match cursor.try_collect().await {
+        Ok(items) => items,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    HttpResponse::Ok().json(items)
+}
+
+#[get("/items/{id}")]
+async fn get_item_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let collection = db.collection::<Item>("item");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(obj_id) => obj_id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    match collection.find_one(doc! {"_id":obj_id}).await {
+        Ok(Some(item)) => return HttpResponse::Ok().json(item),
+        Ok(None) => return HttpResponse::NotFound().body("Objeto no encontrado"),
+        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+    }
+}
