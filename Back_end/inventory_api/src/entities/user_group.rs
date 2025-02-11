@@ -29,7 +29,7 @@ impl UserGroup {
 
 #[get("/user-groups")]
 async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
-    let collection = db.collection::<UserGroup>("users groups");
+    let collection = db.collection::<UserGroup>("userGroup");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
@@ -42,7 +42,7 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
 }
 #[get("/user-groups/{id}")]
 async fn get_user_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let collection = db.collection::<UserGroup>("user group");
+    let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),

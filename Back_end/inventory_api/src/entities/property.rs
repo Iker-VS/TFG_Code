@@ -1,3 +1,5 @@
+use std::path;
+
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -50,9 +52,9 @@ async fn get_properties_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(properties)
 }
-#[get("/propreties/{id}")]
+#[get("/properties/{id}")]
 async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let collection = db.collection::<Property>("property");
+    let collection = db.collection::<Property>("properties");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
@@ -62,4 +64,21 @@ async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) 
         Ok(None) => return HttpResponse::NotFound().body("propiedad no encontrada"),
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
+}
+#[get("/properties/group/{id}")]
+async fn get_properties_from_group_handler(db: web::Data<Database>,path: web::Path<String>)->impl Responder{
+    let properties_collection = db.collection::<Property>("properties");
+    let group_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(group_id) => group_id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let properties_cursor= match properties_collection.find(doc! {"groupId":group_id}).await {
+        Ok(properties_cursor)=> properties_cursor,
+        Err(e)=> return HttpResponse::InternalServerError().body(e.to_string()),  
+    };
+    let properties:Vec<Property>= match properties_cursor.try_collect().await {
+        Ok(properties)=>properties,
+        Err(e)=> return HttpResponse::InternalServerError().body(e.to_string()),        
+    };
+    HttpResponse::Ok().json(properties)
 }

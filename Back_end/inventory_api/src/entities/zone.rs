@@ -50,7 +50,7 @@ async fn get_zones_handler(db: web::Data<Database>) -> impl Responder {
 }
 #[get("/zones/{id}")]
 async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let collection = db.collection::<Zone>("zone");
+    let collection = db.collection::<Zone>("zones");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),

@@ -44,7 +44,7 @@ async fn get_logs_handler(db: web::Data<Database>) -> impl Responder {
 }
 #[get("/logs/{id}")]
 async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let collection = db.collection::<Log>("log");
+    let collection = db.collection::<Log>("logs");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
