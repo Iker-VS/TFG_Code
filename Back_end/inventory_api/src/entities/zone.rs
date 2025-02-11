@@ -61,3 +61,21 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+#[get("/zones/parent/{id}")]
+async fn get_zone_from_parent_handler(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
+
+    let zone_collection= db.collection::<Zone>("zones");
+    let parent_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(parent_id)=>parent_id,
+        Err(_)=> return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let zone_cursor =match zone_collection.find(doc! {"parentZoneId":parent_id}).await{
+        Ok(zone_cursor)=>zone_cursor,
+        Err(e)=> return HttpResponse::BadRequest().body(e.to_string()),
+    };
+    let zones:Vec<Zone> = match zone_cursor.try_collect().await{
+        Ok(zones)=>zones,
+        Err(e)=> return HttpResponse::BadRequest().body(e.to_string()),
+    };
+    HttpResponse::Ok().json(zones)
+}

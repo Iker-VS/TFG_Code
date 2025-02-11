@@ -1,5 +1,5 @@
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
-use futures_util::stream::TryStreamExt;
+use futures_util::{future::ok, stream::TryStreamExt};
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
     Database,
@@ -27,7 +27,7 @@ impl UserGroup {
     }
 }
 
-#[get("/user-groups")]
+#[get("/user-group")]
 async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let cursor = match collection.find(doc! {}).await {
@@ -40,7 +40,7 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(user_groups)
 }
-#[get("/user-groups/{id}")]
+#[get("/user-group/{id}")]
 async fn get_user_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
@@ -55,8 +55,8 @@ async fn get_user_group_handler(db: web::Data<Database>, path: web::Path<String>
 }
 
 
-/*#[get("/users/group/{id}")]
-async fn get_users_group(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
+#[get("/user-group/group/{id}")]
+async fn get_users_from_group(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
     let collection_user_group =db.collection::<UserGroup>("userGroup");
     let obj_id= match ObjectId::parse_str(&path.into_inner()) {
         Ok(id)=>id,
@@ -69,8 +69,10 @@ async fn get_users_group(db: web::Data<Database>,path: web::Path<String>)-> impl
     let users:Vec<UserGroup>=match collection_user_group.try_collect().await {
         
     };
-
-
-
 }
-*/ 
+
+#[get("/user-group/user/{id}")]
+async fn get_groups_from_user(db:web::Data<Database>,path:web::Path<String>)-> impl Responder{
+
+    HttpResponse::Ok()
+}
