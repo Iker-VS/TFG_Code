@@ -118,10 +118,23 @@ async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) 
     };
     HttpResponse::Ok().json(groups)
 }
+
+#[post("/user-group")]
+async  fn create_user_group_handler(db: web::Data<Database>, new_user_group: web::Json<UserGroup>)->impl Responder{
+    let collection= db.collection::<UserGroup>("userGroup");
+    let mut user_group = new_user_group.into_inner();
+    user_group.id= None;
+    match collection.insert_one(user_group).await{
+        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
+        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_from_group)
     .service(get_users_groups_handler)
     .service(get_groups_from_user)
-    .service(get_users_from_group);
+    .service(get_users_from_group)
+    .service(create_user_group_handler);
     
 }

@@ -1,5 +1,7 @@
+use std::collections;
+
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
-use futures_util::stream::TryStreamExt;
+use futures_util::{future::ok, stream::TryStreamExt};
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
     Database,
@@ -55,8 +57,21 @@ async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> im
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+
+#[post("/logs")]
+async  fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>)->impl Responder{
+    let collection= db.collection::<Log>("logs");
+    let mut log = new_log.into_inner();
+    log.id= None;
+    match collection.insert_one(log).await{
+        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
+        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)
-    .service(get_logs_handler);
+    .service(get_logs_handler)
+    .service(create_log_handler);
 
 }

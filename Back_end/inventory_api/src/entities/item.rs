@@ -100,10 +100,20 @@ async fn get_items_from_zone_handler(db:web::Data<Database>, path: web::Path<Str
     };
     HttpResponse::Ok().json(items)
 }
+#[post("/items")]
+    async fn create_item_handler(db:web::Data<Database>, new_item: web::Json<Item>)->impl Responder{
+        let collection=db.collection::<Item>("items");
+        let mut item=new_item.into_inner();
+        item.id=None;
+        match collection.insert_one(item).await {
+            Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
+            Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+        }
+    }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_item_handler)
     .service(get_items_handler)
-    .service(get_items_from_zone_handler);
-
+    .service(get_items_from_zone_handler)
+    .service(create_item_handler);
 }

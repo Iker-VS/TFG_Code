@@ -67,6 +67,9 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 #[post("/users")]
 async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
     let collection = db.collection::<User>("users");
+    if collection.find_one(doc! {"mail":&new_user.mail}).await.unwrap_or(None).is_some(){
+        return HttpResponse::BadRequest().body("El correo está en uso");
+    }
     let mut user = new_user.into_inner();
     user.id = None;
     match collection.insert_one(user).await {

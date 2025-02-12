@@ -66,25 +66,39 @@ async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) 
     }
 }
 #[get("/properties/group/{id}")]
-async fn get_properties_from_group_handler(db: web::Data<Database>,path: web::Path<String>)->impl Responder{
+async fn get_properties_from_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let properties_collection = db.collection::<Property>("properties");
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(group_id) => group_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let properties_cursor= match properties_collection.find(doc! {"groupId":group_id}).await {
-        Ok(properties_cursor)=> properties_cursor,
-        Err(e)=> return HttpResponse::InternalServerError().body(e.to_string()),  
+    let properties_cursor = match properties_collection.find(doc! {"groupId":group_id}).await {
+        Ok(properties_cursor) => properties_cursor,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    let properties:Vec<Property>= match properties_cursor.try_collect().await {
-        Ok(properties)=>properties,
-        Err(e)=> return HttpResponse::InternalServerError().body(e.to_string()),        
+    let properties: Vec<Property> = match properties_cursor.try_collect().await {
+        Ok(properties) => properties,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     HttpResponse::Ok().json(properties)
 }
+#[post("/porperties")]
+async fn create_property_handler(db: web::Data<Database>, new_property: web::Json<Property>) -> impl Responder {
+    let collection = db.collection::<Property>("properties");
+    let mut property = new_property.into_inner();
+    property.id = None;
+    match collection.insert_one(property).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_property_handler)
-    .service(get_properties_handler)
-    .service(get_properties_from_group_handler);
-
+        .service(get_properties_handler)
+        .service(get_properties_from_group_handler)
+        .service(create_property_handler);
 }

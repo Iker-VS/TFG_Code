@@ -18,6 +18,7 @@ pub struct Zone {
     #[serde(rename = "parentZoneId", skip_serializing_if = "Option::is_none")]
     pub parent_zone_id: Option<ObjectId>,
 }
+
 impl Zone {
     fn new(
         name: String,
@@ -48,6 +49,7 @@ async fn get_zones_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(zones)
 }
+
 #[get("/zones/{id}")]
 async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Zone>("zones");
@@ -61,6 +63,7 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+
 #[get("/zones/parent/{id}")]
 async fn get_zone_from_parent_handler(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
 
@@ -79,8 +82,21 @@ async fn get_zone_from_parent_handler(db: web::Data<Database>,path: web::Path<St
     };
     HttpResponse::Ok().json(zones)
 }
+
+#[post("/zones")]
+async  fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)->impl Responder{
+    let collection= db.collection::<Zone>("zones");
+    let mut zone = new_zone.into_inner();
+    zone.id= None;
+    match collection.insert_one(zone).await{
+        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
+        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_zone_handler)
     .service(get_zones_handler)
-    .service(get_zone_from_parent_handler);
+    .service(get_zone_from_parent_handler)
+    .service(create_zone_handler);
 }
