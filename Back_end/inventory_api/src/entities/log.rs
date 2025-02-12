@@ -19,6 +19,9 @@ pub struct Log {
     #[serde(rename = "userId")]
     pub user_id: ObjectId,
 }
+
+
+
 impl Log {
     fn new(description: String, time: DateTime, group_id: ObjectId, user_id: ObjectId) -> Log {
         Self {
@@ -44,6 +47,7 @@ async fn get_logs_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(logs)
 }
+
 #[get("/logs/{id}")]
 async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Log>("logs");
@@ -59,19 +63,48 @@ async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> im
 }
 
 #[post("/logs")]
-async  fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>)->impl Responder{
-    let collection= db.collection::<Log>("logs");
+async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>) -> impl Responder {
+    let collection = db.collection::<Log>("logs");
     let mut log = new_log.into_inner();
-    log.id= None;
-    match collection.insert_one(log).await{
-        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
-        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    log.id = None;
+    match collection.insert_one(log).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[put("/logs/{id}")]
+async fn update_log_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_log: web::Json<Log>,
+) -> impl Responder {
+    let collection = db.collection::<Log>("logs");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "description": updated_log.description.clone(),
+            "time": updated_log.time.clone(),
+            "groupId": updated_log.group_id.clone(),
+            "UserId": updated_log.user_id.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Log actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("Log no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)
-    .service(get_logs_handler)
-    .service(create_log_handler);
-
+        .service(get_logs_handler)
+        .service(create_log_handler)
+        .service(update_log_handler);
 }

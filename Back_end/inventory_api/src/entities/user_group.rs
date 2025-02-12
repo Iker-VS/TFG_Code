@@ -41,7 +41,10 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     HttpResponse::Ok().json(user_groups)
 }
 #[get("/user-group/{id}")]
-async fn get_user_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_user_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
@@ -54,25 +57,27 @@ async fn get_user_group_handler(db: web::Data<Database>, path: web::Path<String>
     }
 }
 
-
 #[get("/user-group/group/{id}")]
-async fn get_users_from_group(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
-    let user_group_collection =db.collection::<UserGroup>("userGroup");
-    let obj_id= match ObjectId::parse_str(&path.into_inner()) {
-        Ok(id)=>id,
-        Err(_)=> return HttpResponse::BadRequest().body("ID inválido"),
+async fn get_users_from_group(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let user_group_cursor =match user_group_collection.find(doc! {"groupId":obj_id}).await {
-        Ok(cursor_user_group)=>cursor_user_group,
-        Err(e)=>return HttpResponse::InternalServerError().body(e.to_string()),
+    let user_group_cursor = match user_group_collection.find(doc! {"groupId":obj_id}).await {
+        Ok(cursor_user_group) => cursor_user_group,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    let user_group:Vec<UserGroup>=match user_group_cursor.try_collect().await {
-        Ok(users)=>users,
-        Err(e)=>return HttpResponse::InternalServerError().body(e.to_string()),
+    let user_group: Vec<UserGroup> = match user_group_cursor.try_collect().await {
+        Ok(users) => users,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    let users_id:Vec<ObjectId>= user_group.iter().map(|u| u.user_id).collect();
-    let users_collection=db.collection::<User>("users");
-    let user_cursor = match users_collection.find(doc! {"_id":{ "$in": users_id }}).await {
+    let users_id: Vec<ObjectId> = user_group.iter().map(|u| u.user_id).collect();
+    let users_collection = db.collection::<User>("users");
+    let user_cursor = match users_collection
+        .find(doc! {"_id":{ "$in": users_id }})
+        .await
+    {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -84,11 +89,10 @@ async fn get_users_from_group(db: web::Data<Database>,path: web::Path<String>)->
     HttpResponse::Ok().json(users)
 }
 
-
 #[get("/user-group/user/{id}")]
 async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
-    
+
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
@@ -104,10 +108,13 @@ async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) 
     };
 
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
-    
+
     let group_collection = db.collection::<Group>("groups");
-    
-    let group_cursor = match group_collection.find(doc! {"_id": { "$in": &group_ids }}).await {
+
+    let group_cursor = match group_collection
+        .find(doc! {"_id": { "$in": &group_ids }})
+        .await
+    {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -120,21 +127,51 @@ async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) 
 }
 
 #[post("/user-group")]
-async  fn create_user_group_handler(db: web::Data<Database>, new_user_group: web::Json<UserGroup>)->impl Responder{
-    let collection= db.collection::<UserGroup>("userGroup");
+async fn create_user_group_handler(
+    db: web::Data<Database>,
+    new_user_group: web::Json<UserGroup>,
+) -> impl Responder {
+    let collection = db.collection::<UserGroup>("userGroup");
     let mut user_group = new_user_group.into_inner();
-    user_group.id= None;
-    match collection.insert_one(user_group).await{
-        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
-        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    user_group.id = None;
+    match collection.insert_one(user_group).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[put("/user-group/{id}")]
+async fn update_user_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_user_group: web::Json<UserGroup>,
+) -> impl Responder {
+    let collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "groupId": updated_user_group.group_id.clone(),
+            "UserId": updated_user_group.user_id.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("grupo usuario actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("Grupo usuario no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_from_group)
-    .service(get_users_groups_handler)
-    .service(get_groups_from_user)
-    .service(get_users_from_group)
-    .service(create_user_group_handler);
-    
+        .service(get_users_groups_handler)
+        .service(get_groups_from_user)
+        .service(get_users_from_group)
+        .service(create_user_group_handler)
+        .service(update_user_group_handler);
 }

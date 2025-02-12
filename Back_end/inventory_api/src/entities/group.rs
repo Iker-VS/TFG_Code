@@ -9,9 +9,7 @@ use mongodb::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::group;
-
-use super::user_group::get_groups_from_user;
+use crate::entities::user_group::UserGroup;
 
 #[derive(Debug, Serialize, Deserialize)]
 
@@ -48,7 +46,8 @@ impl Group {
             tags,
         }
     }
-     fn create_group_code() -> String {
+
+    fn create_group_code() -> String {
         let mut rand = rand::rng();
         let characters: Vec<char> = ('0'..='9').chain('a'..='z').chain('A'..='Z').collect();
 
@@ -72,6 +71,7 @@ async fn get_groups_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(groups)
 }
+
 #[get("/groups/{id}")]
 async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Group>("groups");
@@ -85,25 +85,64 @@ async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> 
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+
 #[post("/groups")]
-async fn create_group_handler(db: web::Data<Database>, new_group: web::Json<Group>)->impl Responder{
-    let collection= db.collection::<Group>("groups");
-    let mut group=new_group.into_inner();
-    let mut group_code= Group::create_group_code();
-    while collection.find_one(doc! {"groupCode":&group_code}).await.unwrap_or(None).is_some(){
-        group_code=Group::create_group_code();
+async fn create_group_handler(
+    db: web::Data<Database>,
+    new_group: web::Json<Group>,
+) -> impl Responder {
+    let collection = db.collection::<Group>("groups");
+    let mut group = new_group.into_inner();
+    let mut group_code = Group::create_group_code();
+    while collection
+        .find_one(doc! {"groupCode":&group_code})
+        .await
+        .unwrap_or(None)
+        .is_some()
+    {
+        group_code = Group::create_group_code();
     }
-    group.group_code=group_code;
-    group.user_count=0;
-    match collection.insert_one(group).await{
-        Ok(result )=>HttpResponse::Ok().json(result.inserted_id),
-        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    group.group_code = group_code;
+    group.user_count = 0;
+    match collection.insert_one(group).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[put("/groups/{id}")]
+async fn update_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_group: web::Json<Group>,
+) -> impl Responder {
+    let collection = db.collection::<Group>("group");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "name": updated_group.name.clone(),
+            "userCount":updated_group.user_count.clone(),
+            "userMax": updated_group.user_max.clone(),
+            "groupCode":updated_group.group_code.clone(),
+            "tags":updated_group.tags.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_group_handler)
-    .service(get_groups_handler)
-    .service(create_group_handler);
-
+        .service(get_groups_handler)
+        .service(create_group_handler)
+        .service(update_group_handler);
 }

@@ -85,8 +85,12 @@ async fn get_properties_from_group_handler(
     };
     HttpResponse::Ok().json(properties)
 }
+
 #[post("/porperties")]
-async fn create_property_handler(db: web::Data<Database>, new_property: web::Json<Property>) -> impl Responder {
+async fn create_property_handler(
+    db: web::Data<Database>,
+    new_property: web::Json<Property>,
+) -> impl Responder {
     let collection = db.collection::<Property>("properties");
     let mut property = new_property.into_inner();
     property.id = None;
@@ -96,9 +100,39 @@ async fn create_property_handler(db: web::Data<Database>, new_property: web::Jso
     }
 }
 
+#[put("/properties/{id}")]
+async fn update_property_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_property: web::Json<Property>,
+) -> impl Responder {
+    let collection = db.collection::<Property>("properties");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "name": updated_property.name.clone(),
+            "direction": updated_property.direction.clone(),
+            "groupId": updated_property.group_id.clone(),
+            "UserId": updated_property.user_id.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Propiedad actualizada"),
+        Ok(_) => HttpResponse::NotFound().body("Propiedad no encontrada"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_property_handler)
         .service(get_properties_handler)
         .service(get_properties_from_group_handler)
-        .service(create_property_handler);
+        .service(create_property_handler)
+        .service(update_property_handler);
 }

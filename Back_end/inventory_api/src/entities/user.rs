@@ -9,7 +9,10 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 use tokio::task::Id;
 
-use super::{group, user_group::{self, UserGroup}};
+use super::{
+    group,
+    user_group::{self, UserGroup},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -38,7 +41,7 @@ impl User {
 #[get("/users")]
 async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<User>("users");
-    let cursor = match collection.find(doc! {}).await{
+    let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -63,11 +66,15 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     }
 }
 
-
 #[post("/users")]
 async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
     let collection = db.collection::<User>("users");
-    if collection.find_one(doc! {"mail":&new_user.mail}).await.unwrap_or(None).is_some(){
+    if collection
+        .find_one(doc! {"mail":&new_user.mail})
+        .await
+        .unwrap_or(None)
+        .is_some()
+    {
         return HttpResponse::BadRequest().body("El correo está en uso");
     }
     let mut user = new_user.into_inner();
@@ -77,8 +84,6 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
-
-
 
 #[put("/users/{id}")]
 async fn update_user_handler(
@@ -96,7 +101,7 @@ async fn update_user_handler(
             "mail": updated_user.mail.clone(),
             "passwordHash": updated_user.password_hash.clone(),
             "name": updated_user.name.clone(),
-            "admin": updated_user.admin,
+            "admin": updated_user.admin.clone(),
         }
     };
     match collection

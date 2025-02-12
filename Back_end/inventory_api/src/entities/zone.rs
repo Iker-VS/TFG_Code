@@ -65,38 +65,70 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 }
 
 #[get("/zones/parent/{id}")]
-async fn get_zone_from_parent_handler(db: web::Data<Database>,path: web::Path<String>)-> impl Responder{
-
-    let zone_collection= db.collection::<Zone>("zones");
+async fn get_zone_from_parent_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let zone_collection = db.collection::<Zone>("zones");
     let parent_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(parent_id)=>parent_id,
-        Err(_)=> return HttpResponse::BadRequest().body("ID inválido"),
+        Ok(parent_id) => parent_id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let zone_cursor =match zone_collection.find(doc! {"parentZoneId":parent_id}).await{
-        Ok(zone_cursor)=>zone_cursor,
-        Err(e)=> return HttpResponse::BadRequest().body(e.to_string()),
+    let zone_cursor = match zone_collection.find(doc! {"parentZoneId":parent_id}).await {
+        Ok(zone_cursor) => zone_cursor,
+        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
     };
-    let zones:Vec<Zone> = match zone_cursor.try_collect().await{
-        Ok(zones)=>zones,
-        Err(e)=> return HttpResponse::BadRequest().body(e.to_string()),
+    let zones: Vec<Zone> = match zone_cursor.try_collect().await {
+        Ok(zones) => zones,
+        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
     };
     HttpResponse::Ok().json(zones)
 }
 
 #[post("/zones")]
-async  fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)->impl Responder{
-    let collection= db.collection::<Zone>("zones");
+async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>) -> impl Responder {
+    let collection = db.collection::<Zone>("zones");
     let mut zone = new_zone.into_inner();
-    zone.id= None;
-    match collection.insert_one(zone).await{
-        Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
-        Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
+    zone.id = None;
+    match collection.insert_one(zone).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[put("/zones/{id}")]
+async fn update_zones_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_zone: web::Json<Zone>,
+) -> impl Responder {
+    let collection = db.collection::<Zone>("zones");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "name": updated_zone.name.clone(),
+            "propertyId": updated_zone.property_id.clone(),
+            "parentZoneId": updated_zone.parent_zone_id.clone(),
+            "UserId": updated_zone.user_id.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
+        Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_zone_handler)
-    .service(get_zones_handler)
-    .service(get_zone_from_parent_handler)
-    .service(create_zone_handler);
+        .service(get_zones_handler)
+        .service(get_zone_from_parent_handler)
+        .service(create_zone_handler)
+        .service(update_zones_handler);
 }

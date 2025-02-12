@@ -1,12 +1,10 @@
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId, DateTime},
+    bson::{self, doc, oid::ObjectId, DateTime},
     Database,
 };
 use serde::{Deserialize, Serialize};
-
-use super::zone::{self, Zone};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Item {
@@ -29,6 +27,7 @@ pub struct ValueEntry {
     name: String,
     value: Value,
 }
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
@@ -36,6 +35,7 @@ pub enum Value {
     Number(i32),
     Date(DateTime),
 }
+
 impl Item {
     fn new(
         name: String,
@@ -56,6 +56,7 @@ impl Item {
         }
     }
 }
+
 #[get("/items")]
 async fn get_items_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<Item>("items");
@@ -83,37 +84,74 @@ async fn get_item_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+
 #[get("/items/zone/{id}")]
-async fn get_items_from_zone_handler(db:web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let items_collection= db.collection::<Item>("items");
-    let zone_id =match ObjectId::parse_str(&path.into_inner()) {
-        Ok(zone_id)=>zone_id,
-        Err(_) =>return HttpResponse::BadRequest().body("ID inválido"),
+async fn get_items_from_zone_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let items_collection = db.collection::<Item>("items");
+    let zone_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(zone_id) => zone_id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let items_cursor =match items_collection.find(doc! {"zoneId":zone_id}).await {
-        Ok(items_cursor)=>items_cursor,
-        Err(e)=> return HttpResponse::BadRequest().body(e.to_string()),        
+    let items_cursor = match items_collection.find(doc! {"zoneId":zone_id}).await {
+        Ok(items_cursor) => items_cursor,
+        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
     };
-    let items:Vec<Item> =match items_cursor.try_collect().await{
-        Ok(items)=>items,
-        Err(e)=> return HttpResponse::InternalServerError().body(e.to_string()),
+    let items: Vec<Item> = match items_cursor.try_collect().await {
+        Ok(items) => items,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     HttpResponse::Ok().json(items)
 }
+
 #[post("/items")]
-    async fn create_item_handler(db:web::Data<Database>, new_item: web::Json<Item>)->impl Responder{
-        let collection=db.collection::<Item>("items");
-        let mut item=new_item.into_inner();
-        item.id=None;
-        match collection.insert_one(item).await {
-            Ok(result)=>HttpResponse::Ok().json(result.inserted_id),
-            Err(e)=>HttpResponse::InternalServerError().body(e.to_string()),
-        }
+async fn create_item_handler(db: web::Data<Database>, new_item: web::Json<Item>) -> impl Responder {
+    let collection = db.collection::<Item>("items");
+    let mut item = new_item.into_inner();
+    item.id = None;
+    match collection.insert_one(item).await {
+        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
+}
+
+#[put("/items/{id}")]
+async fn update_item_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    updated_item: web::Json<Item>,
+) -> impl Responder {
+    let collection = db.collection::<Item>("items");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    let update_doc = doc! {
+        "$set": {
+            "name": updated_item.name.clone(),
+            "description": updated_item.description.clone(),
+            "pictureUrl": updated_item.picture_url.clone(),
+            "zoneId": updated_item.zone_id.clone(),
+            "values": updated_item.values.as_ref().map(|v| bson::to_bson(v).ok()).flatten(),
+            "tags":updated_item.tags.clone(),
+        }
+    };
+    match collection
+        .update_one(doc! {"_id": obj_id}, update_doc)
+        .await
+    {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Objeto actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("Objeto no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_item_handler)
-    .service(get_items_handler)
-    .service(get_items_from_zone_handler)
-    .service(create_item_handler);
+        .service(get_items_handler)
+        .service(get_items_from_zone_handler)
+        .service(create_item_handler)
+        .service(update_item_handler);
 }
