@@ -79,3 +79,8 @@ async fn get_zone_from_parent_handler(db: web::Data<Database>,path: web::Path<St
     };
     HttpResponse::Ok().json(zones)
 }
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_zone_handler)
+    .service(get_zones_handler)
+    .service(get_zone_from_parent_handler);
+}

@@ -55,4 +55,8 @@ async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> im
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_log_handler)
+    .service(get_logs_handler);
 
+}

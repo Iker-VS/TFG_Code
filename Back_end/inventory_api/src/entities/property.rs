@@ -82,3 +82,9 @@ async fn get_properties_from_group_handler(db: web::Data<Database>,path: web::Pa
     };
     HttpResponse::Ok().json(properties)
 }
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_property_handler)
+    .service(get_properties_handler)
+    .service(get_properties_from_group_handler);
+
+}

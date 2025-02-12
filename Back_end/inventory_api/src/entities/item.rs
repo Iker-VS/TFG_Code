@@ -100,3 +100,10 @@ async fn get_items_from_zone_handler(db:web::Data<Database>, path: web::Path<Str
     };
     HttpResponse::Ok().json(items)
 }
+
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_item_handler)
+    .service(get_items_handler)
+    .service(get_items_from_zone_handler);
+
+}

@@ -9,6 +9,8 @@ use mongodb::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use super::user_group::get_groups_from_user;
+
 #[derive(Debug, Serialize, Deserialize)]
 
 pub struct Group {
@@ -80,4 +82,9 @@ async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> 
         Ok(None) => return HttpResponse::NotFound().body("Usuario no encontrado"),
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
+}
+pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(get_group_handler)
+    .service(get_groups_handler);
+
 }
