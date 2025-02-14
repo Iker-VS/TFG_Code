@@ -1,3 +1,4 @@
+use crate::entities::item::{delete_item, Item};
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -125,10 +126,61 @@ async fn update_zones_handler(
     }
 }
 
+pub async fn delete_zone(db: &Database, zone_id: String) -> HttpResponse {
+    let zone_collection = db.collection::<Zone>("zones");
+    let item_collection = db.collection::<Item>("items");
+    let obj_id = match ObjectId::parse_str(zone_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+    };
+    let item_cursor = match item_collection.find(doc! {"zoneId":obj_id}).await {
+        Ok(items) => items,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let items: Vec<Item> = match item_cursor.try_collect().await {
+        Ok(items) => items,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    for item in items {
+        let id = match item.id {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest().body("No hay ID"),
+        };
+        let res = delete_item(db, id.to_string()).await;
+        if !res.status().is_success() {
+            return res; // Si falla, detenemos la ejecución y devolvemos el error
+        }
+    }
+    match zone_collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(_) => HttpResponse::Ok().body("Zona eliminada"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/zones/{id}")]
+async fn delete_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_zone(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_zone_handler)
         .service(get_zones_handler)
         .service(get_zone_from_parent_handler)
         .service(create_zone_handler)
-        .service(update_zones_handler);
+        .service(update_zones_handler)
+        .service(delete_zone_handler);
 }

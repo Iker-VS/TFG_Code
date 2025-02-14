@@ -1,5 +1,3 @@
-use std::{collections, path};
-
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -10,6 +8,11 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::user_group::UserGroup;
+
+use super::{
+    property::{delete_property, Property},
+    user_group::delete_user_group_from_group,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 
@@ -140,9 +143,81 @@ async fn update_group_handler(
     }
 }
 
+pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
+    let group_collection = db.collection::<Group>("groups");
+    let property_collection = db.collection::<Property>("properties");
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(group_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+    };
+
+    let property_cursor = match property_collection.find(doc! {"groupId":obj_id}).await {
+        Ok(zones) => zones,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let properties: Vec<Property> = match property_cursor.try_collect().await {
+        Ok(properties) => properties,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    for property in properties {
+        let id = match property.id {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest().body("No hay ID"),
+        };
+        let res = delete_property(db, id.to_string()).await;
+        if !res.status().is_success() {
+            return res; // Si falla, detenemos la ejecución y devolvemos el error
+        }
+    }
+    let user_group_cursor = match user_group_collection.find(doc! {"groupId":obj_id}).await {
+        Ok(user_group) => user_group,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
+        Ok(user_group) => user_group,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    for user_group in users_groups {
+        let id = match user_group.id {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest().body("No hay ID"),
+        };
+        let res = delete_user_group_from_group(db, id.to_string()).await;
+        if !res.status().is_success() {
+            return res; // Si falla, detenemos la ejecución y devolvemos el error
+        }
+    }
+
+    match group_collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(_) => HttpResponse::Ok().body("Grupo Eliminado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/group/{id}")]
+async fn delete_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_group(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_group_handler)
         .service(get_groups_handler)
         .service(create_group_handler)
-        .service(update_group_handler);
+        .service(update_group_handler)
+        .service(delete_group_handler);
 }

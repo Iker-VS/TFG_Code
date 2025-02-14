@@ -1,12 +1,12 @@
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
-use futures_util::{future::ok, stream::TryStreamExt};
+use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId, DateTime},
+    bson::{doc, oid::ObjectId},
     Database,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::entities::{group::Group, user::User, user_group};
+use crate::entities::{group::Group, user::User};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserGroup {
@@ -161,10 +161,105 @@ async fn update_user_group_handler(
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
     {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("grupo usuario actualizado"),
+        Ok(result) if result.matched_count == 1 => {
+            HttpResponse::Ok().body("grupo usuario actualizado")
+        }
         Ok(_) => HttpResponse::NotFound().body("Grupo usuario no encontrado"),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
+}
+
+#[delete("/user-group/{id}")]
+async fn delete_user_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    match collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(result) if result.deleted_count == 1 => {
+            HttpResponse::Ok().body("grupo usuario eliminado")
+        }
+        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+pub async fn delete_user_group_from_user(db: &Database, user_id: String) -> HttpResponse {
+    let collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(user_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    match collection.delete_many(doc! {"userId": obj_id}).await {
+        Ok(result) if result.deleted_count > 0 => {
+            HttpResponse::Ok().body("grupo usuario eliminado")
+        }
+        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/user-group/user/{id}")]
+async fn delete_user_group_from_user_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_user_group_from_user(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
+
+pub async fn delete_user_group_from_group(db: &Database, group_id: String) -> HttpResponse {
+    let collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(group_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    match collection.delete_many(doc! {"groupId": obj_id}).await {
+        Ok(result) if result.deleted_count > 0 => {
+            HttpResponse::Ok().body("grupo usuario eliminado")
+        }
+        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/user-group/group/{id}")]
+async fn delete_user_group_from_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_user_group_from_group(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
@@ -173,5 +268,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_groups_from_user)
         .service(get_users_from_group)
         .service(create_user_group_handler)
-        .service(update_user_group_handler);
+        .service(update_user_group_handler)
+        .service(delete_user_group_handler)
+        .service(delete_user_group_from_user_handler)
+        .service(delete_user_group_from_group_handler);
 }

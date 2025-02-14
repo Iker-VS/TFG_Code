@@ -1,14 +1,12 @@
-use std::path;
-
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId, DateTime},
+    bson::{doc, oid::ObjectId},
     Database,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::entities::property;
+use super::zone::{delete_zone, Zone};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Property {
@@ -129,10 +127,66 @@ async fn update_property_handler(
     }
 }
 
+pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse {
+    let zone_collection = db.collection::<Zone>("zones");
+    let property_collection = db.collection::<Property>("properties");
+    let obj_id = match ObjectId::parse_str(property_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+    };
+
+    let zone_cursor = match zone_collection.find(doc! {"propertyId":obj_id}).await {
+        Ok(zones) => zones,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let zones: Vec<Zone> = match zone_cursor.try_collect().await {
+        Ok(zones) => zones,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    for zone in zones {
+        let id = match zone.id {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest().body("No hay ID"),
+        };
+        let res = delete_zone(db, id.to_string()).await;
+        if !res.status().is_success() {
+            return res; // Si falla, detenemos la ejecución y devolvemos el error
+        }
+    }
+
+    match property_collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(_) => HttpResponse::Ok().body("Propiedad Eliminada"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/properties/{id}")]
+async fn delete_property_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_property(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_property_handler)
         .service(get_properties_handler)
         .service(get_properties_from_group_handler)
         .service(create_property_handler)
-        .service(update_property_handler);
+        .service(update_property_handler)
+        .service(delete_property_handler);
 }

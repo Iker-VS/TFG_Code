@@ -1,5 +1,4 @@
-use std::collections;
-
+use super::user_group::{delete_user_group_from_user, UserGroup};
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -7,12 +6,6 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
-use tokio::task::Id;
-
-use super::{
-    group,
-    user_group::{self, UserGroup},
-};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -114,18 +107,56 @@ async fn update_user_handler(
     }
 }
 
-#[delete("/users/{id}")]
-async fn delete_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
-    let collection = db.collection::<User>("users");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
+    let item_collection = db.collection::<User>("users");
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    let obj_id = match ObjectId::parse_str(user_id) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    match collection.delete_one(doc! {"_id": obj_id}).await {
+
+    let user_group_cursor = match user_group_collection.find(doc! {"userId":obj_id}).await {
+        Ok(user_group) => user_group,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
+        Ok(user_group) => user_group,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    for user_group in users_groups {
+        let id = match user_group.id {
+            Some(id) => id,
+            None => return HttpResponse::BadRequest().body("No hay ID"),
+        };
+        let res = delete_user_group_from_user(db, id.to_string()).await;
+        if !res.status().is_success() {
+            return res; // Si falla, detenemos la ejecución y devolvemos el error
+        }
+    }
+
+    match item_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("Usuario eliminado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
+}
+
+#[delete("/users/{id}")]
+async fn delete_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_user(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+    response
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {

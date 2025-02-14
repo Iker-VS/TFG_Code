@@ -1,7 +1,5 @@
-use std::collections;
-
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
-use futures_util::{future::ok, stream::TryStreamExt};
+use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
     Database,
@@ -19,8 +17,6 @@ pub struct Log {
     #[serde(rename = "userId")]
     pub user_id: ObjectId,
 }
-
-
 
 impl Log {
     fn new(description: String, time: DateTime, group_id: ObjectId, user_id: ObjectId) -> Log {
@@ -96,8 +92,22 @@ async fn update_log_handler(
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
     {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Log actualizado"),
-        Ok(_) => HttpResponse::NotFound().body("Log no encontrado"),
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("registro actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("registro no encontrado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/logs/{id}")]
+async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let collection = db.collection::<Log>("logs");
+    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    match collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("registro eliminado"),
+        Ok(_) => HttpResponse::NotFound().body("registro no encontrado"),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
@@ -106,5 +116,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)
         .service(get_logs_handler)
         .service(create_log_handler)
-        .service(update_log_handler);
+        .service(update_log_handler)
+        .service(delete_log_handler);
 }

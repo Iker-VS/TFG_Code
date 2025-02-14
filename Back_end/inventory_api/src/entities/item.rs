@@ -148,10 +148,41 @@ async fn update_item_handler(
     }
 }
 
+pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
+    let collection = db.collection::<Item>("items");
+    let obj_id = match ObjectId::parse_str(item_id) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+    };
+    match collection.delete_one(doc! {"_id": obj_id}).await {
+        Ok(_) => HttpResponse::Ok().body("Item Eliminado"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
+#[delete("/items/{id}")]
+async fn delete_item_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_item(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_item_handler)
         .service(get_items_handler)
         .service(get_items_from_zone_handler)
         .service(create_item_handler)
-        .service(update_item_handler);
+        .service(update_item_handler)
+        .service(delete_item_handler);
 }
