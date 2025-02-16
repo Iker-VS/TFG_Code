@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -63,6 +65,7 @@ async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>) ->
     let collection = db.collection::<Log>("logs");
     let mut log = new_log.into_inner();
     log.id = None;
+    log.time=DateTime::now();
     match collection.insert_one(log).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
