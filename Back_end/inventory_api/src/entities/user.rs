@@ -1,4 +1,6 @@
-use super::user_group::{delete_user_group_from_user, UserGroup};
+use crate::entities::user_group::delete_user_group;
+
+use super::user_group::UserGroup;
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -128,7 +130,8 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
             Some(id) => id,
             None => return HttpResponse::BadRequest().body("No hay ID"),
         };
-        let res = delete_user_group_from_user(db, id.to_string()).await;
+        print!("{:?}",id);
+        let res = delete_user_group(db, id.to_string()).await;
         if !res.status().is_success() {
             return res; // Si falla, detenemos la ejecución y devolvemos el error
         }

@@ -58,7 +58,7 @@ async fn get_user_group_handler(
 }
 
 #[get("/user-group/group/{id}")]
-async fn get_users_from_group(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_users_from_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -72,32 +72,32 @@ async fn get_users_from_group(db: web::Data<Database>, path: web::Path<String>) 
         Ok(users) => users,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+    
     let users_id: Vec<ObjectId> = user_group.iter().map(|u| u.user_id).collect();
     let users_collection = db.collection::<User>("users");
-    let user_cursor = match users_collection
-        .find(doc! {"_id":{ "$in": users_id }})
-        .await
-    {
-        Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
-
-    let users: Vec<User> = match user_cursor.try_collect().await {
-        Ok(users) => users,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
+    let mut users:Vec<User>=Vec::new();
+    for id in users_id{
+        match users_collection.find_one(doc! {"_id": id}).await {
+            Ok(Some(user)) => users.push(user),
+            Ok(None) => continue,
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        }
+    }
+    if users.is_empty(){
+        return HttpResponse::BadRequest().body("no hay usarios asociados a ese grupo")
+    }
     HttpResponse::Ok().json(users)
 }
 
 #[get("/user-group/user/{id}")]
-async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_groups_from_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
 
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let user_group_cursor = match user_group_collection.find(doc! {"groupId": obj_id}).await {
+    let user_group_cursor = match user_group_collection.find(doc! {"userId": obj_id}).await {
         Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
@@ -108,21 +108,19 @@ async fn get_groups_from_user(db: web::Data<Database>, path: web::Path<String>) 
     };
 
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
-
+    let mut groups:Vec<Group>=Vec::new();
     let group_collection = db.collection::<Group>("groups");
-
-    let group_cursor = match group_collection
-        .find(doc! {"_id": { "$in": &group_ids }})
-        .await
-    {
-        Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
-
-    let groups: Vec<Group> = match group_cursor.try_collect().await {
-        Ok(groups) => groups,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
+    for id in group_ids{
+        match group_collection.find_one(doc! {"_id": id}).await {
+            Ok(Some(group)) => groups.push(group),
+            Ok(None) => continue, // Si no se encuentra, lo ignoramos
+            Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        }
+    }
+    if groups.is_empty() {
+        return HttpResponse::BadRequest().body("No hay grupos asociados a ese usuario");
+    }
+   
     HttpResponse::Ok().json(groups)
 }
 
@@ -174,8 +172,29 @@ async fn delete_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
 ) -> impl Responder {
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    session.start_transaction().await.ok();
+    let response = delete_user_group(&db, path.into_inner()).await;
+
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
+    } else {
+        session.abort_transaction().await.ok();
+    }
+
+    response
+}
+
+pub async fn delete_user_group(
+    db: &Database,
+    user_group_id:String,
+) -> HttpResponse {
     let collection = db.collection::<UserGroup>("userGroup");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+    let obj_id = match ObjectId::parse_str(user_group_id) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
@@ -188,88 +207,12 @@ async fn delete_user_group_handler(
     }
 }
 
-pub async fn delete_user_group_from_user(db: &Database, user_id: String) -> HttpResponse {
-    let collection = db.collection::<UserGroup>("userGroup");
-    let obj_id = match ObjectId::parse_str(user_id) {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
-    };
-    match collection.delete_many(doc! {"userId": obj_id}).await {
-        Ok(result) if result.deleted_count > 0 => {
-            HttpResponse::Ok().body("grupo usuario eliminado")
-        }
-        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-    }
-}
-
-#[delete("/user-group/user/{id}")]
-async fn delete_user_group_from_user_handler(
-    db: web::Data<Database>,
-    path: web::Path<String>,
-) -> impl Responder {
-    let client = db.client();
-    let mut session = match client.start_session().await {
-        Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
-    session.start_transaction().await.ok();
-    let response = delete_user_group_from_user(&db, path.into_inner()).await;
-
-    if response.status().is_success() {
-        session.commit_transaction().await.ok();
-    } else {
-        session.abort_transaction().await.ok();
-    }
-
-    response
-}
-
-pub async fn delete_user_group_from_group(db: &Database, group_id: String) -> HttpResponse {
-    let collection = db.collection::<UserGroup>("userGroup");
-    let obj_id = match ObjectId::parse_str(group_id) {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
-    };
-    match collection.delete_many(doc! {"groupId": obj_id}).await {
-        Ok(result) if result.deleted_count > 0 => {
-            HttpResponse::Ok().body("grupo usuario eliminado")
-        }
-        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-    }
-}
-
-#[delete("/user-group/group/{id}")]
-async fn delete_user_group_from_group_handler(
-    db: web::Data<Database>,
-    path: web::Path<String>,
-) -> impl Responder {
-    let client = db.client();
-    let mut session = match client.start_session().await {
-        Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
-    };
-    session.start_transaction().await.ok();
-    let response = delete_user_group_from_group(&db, path.into_inner()).await;
-
-    if response.status().is_success() {
-        session.commit_transaction().await.ok();
-    } else {
-        session.abort_transaction().await.ok();
-    }
-
-    response
-}
-
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_users_from_group)
+    cfg.service(get_user_group_handler)
         .service(get_users_groups_handler)
-        .service(get_groups_from_user)
-        .service(get_users_from_group)
+        .service(get_groups_from_user_handler)
+        .service(get_users_from_group_handler)
         .service(create_user_group_handler)
         .service(update_user_group_handler)
-        .service(delete_user_group_handler)
-        .service(delete_user_group_from_user_handler)
-        .service(delete_user_group_from_group_handler);
+        .service(delete_user_group_handler);
 }

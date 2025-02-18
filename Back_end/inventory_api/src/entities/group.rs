@@ -11,7 +11,7 @@ use crate::entities::user_group::UserGroup;
 
 use super::{
     property::{delete_property, Property},
-    user_group::delete_user_group_from_group,
+    user_group::delete_user_group,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> 
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
         Ok(Some(group)) => return HttpResponse::Ok().json(group),
-        Ok(None) => return HttpResponse::NotFound().body("Usuario no encontrado"),
+        Ok(None) => return HttpResponse::NotFound().body("Grupo no encontrado"),
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
@@ -119,7 +119,7 @@ async fn update_group_handler(
     path: web::Path<String>,
     updated_group: web::Json<Group>,
 ) -> impl Responder {
-    let collection = db.collection::<Group>("group");
+    let collection = db.collection::<Group>("groups");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
@@ -183,7 +183,7 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
             Some(id) => id,
             None => return HttpResponse::BadRequest().body("No hay ID"),
         };
-        let res = delete_user_group_from_group(db, id.to_string()).await;
+        let res = delete_user_group(db, id.to_string()).await;
         if !res.status().is_success() {
             return res; // Si falla, detenemos la ejecución y devolvemos el error
         }
