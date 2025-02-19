@@ -128,16 +128,34 @@ async fn update_item_handler(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let update_doc = doc! {
+    let mut update_doc = doc! {
         "$set": {
             "name": updated_item.name.clone(),
-            "description": updated_item.description.clone(),
-            "pictureUrl": updated_item.picture_url.clone(),
             "zoneId": updated_item.zone_id.clone(),
-            "values": updated_item.values.as_ref().map(|v| bson::to_bson(v).ok()).flatten(),
-            "tags":updated_item.tags.clone(),
         }
     };
+    if let Some(description) = &updated_item.description {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("description", description.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"description": ""});
+    }
+    
+    if let Some(picture_url) = &updated_item.picture_url {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("pictureUrl", picture_url.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"pictureUrl": ""});
+    }
+    if let Some(values) = &updated_item.values {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("values", values.iter().map(|v| bson::to_bson(v).ok()).collect::<Option<Vec<_>>>());
+    } else {
+        update_doc.insert("$unset", doc! {"values": ""});
+    }
+    
+    if let Some(tags) = &updated_item.tags {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"tags": ""});
+    }
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await

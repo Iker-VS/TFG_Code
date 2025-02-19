@@ -124,15 +124,26 @@ async fn update_group_handler(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let update_doc = doc! {
+    let mut update_doc = doc! {
         "$set": {
             "name": updated_group.name.clone(),
             "userCount":updated_group.user_count.clone(),
-            "userMax": updated_group.user_max.clone(),
             "groupCode":updated_group.group_code.clone(),
-            "tags":updated_group.tags.clone(),
         }
     };
+
+    if let Some(user_max) = &updated_group.user_max {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userMax", user_max.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"user_max": ""});
+    }
+    
+    if let Some(tags) = &updated_group.tags {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"tags": ""});
+    }
+
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
@@ -195,7 +206,7 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
     }
 }
 
-#[delete("/group/{id}")]
+#[delete("/groups/{id}")]
 async fn delete_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let client = db.client();
     let mut session = match client.start_session().await {

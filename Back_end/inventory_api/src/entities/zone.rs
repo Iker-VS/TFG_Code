@@ -108,14 +108,22 @@ async fn update_zones_handler(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let update_doc = doc! {
+    let mut update_doc = doc! {
         "$set": {
             "name": updated_zone.name.clone(),
             "propertyId": updated_zone.property_id.clone(),
-            "parentZoneId": updated_zone.parent_zone_id.clone(),
-            "UserId": updated_zone.user_id.clone(),
         }
     };
+    if let Some(user_id) = &updated_zone.user_id {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userId", user_id.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"userId": ""});
+    }
+    if let Some(parent_zone_id) = &updated_zone.parent_zone_id {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("parentZoneId", parent_zone_id.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"parentZoneId": ""});
+    }
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await

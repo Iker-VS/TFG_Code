@@ -91,14 +91,19 @@ async fn update_user_handler(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let update_doc = doc! {
+    let mut update_doc = doc! {
         "$set": {
             "mail": updated_user.mail.clone(),
             "passwordHash": updated_user.password_hash.clone(),
             "name": updated_user.name.clone(),
-            "admin": updated_user.admin.clone(),
         }
     };
+
+    if let Some(admin) = &updated_user.admin {
+        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("admin", admin.clone());
+    } else {
+        update_doc.insert("$unset", doc! {"admin": ""});
+    }
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
