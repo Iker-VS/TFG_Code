@@ -1,6 +1,6 @@
-use crate::entities::user_group::delete_user_group;
-
 use super::user_group::UserGroup;
+use crate::entities::user_group::delete_user_group;
+use crate::middleware::auth;
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -61,7 +61,31 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     }
 }
 
-#[post("/users")]
+#[post("/users/login/{mail}/{password}")]
+async fn login_handler(
+    db: web::Data<Database>,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (mail, password) = path.into_inner();
+    let collection = db.collection::<User>("users");
+    match collection
+        .find_one(doc! {"$and":[{"mail":&mail},{"passwordHash":&password}]})
+        .await
+    {
+        Ok(Some(user)) => {
+            return HttpResponse::Ok().body(auth::generate_token(
+                user.id.unwrap().to_hex(),
+                user.admin
+                    .map_or("user", |b| if b { "admin" } else { "user" })
+                    .to_string(),
+            ))
+        }
+        Ok(None) => return HttpResponse::NotFound().body("Usuario no encontrado"),
+        Err(_) => return HttpResponse::NotFound().body("Usuario o contraseña erronea"),
+    };
+}
+
+#[post("/users/register")]
 async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
     let collection = db.collection::<User>("users");
     if collection
@@ -100,7 +124,12 @@ async fn update_user_handler(
     };
 
     if let Some(admin) = &updated_user.admin {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("admin", admin.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("admin", admin.clone());
     } else {
         update_doc.insert("$unset", doc! {"admin": ""});
     }
@@ -135,7 +164,7 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
             Some(id) => id,
             None => return HttpResponse::BadRequest().body("No hay ID"),
         };
-        print!("{:?}",id);
+        print!("{:?}", id);
         let res = delete_user_group(db, id.to_string()).await;
         if !res.status().is_success() {
             return res; // Si falla, detenemos la ejecución y devolvemos el error
@@ -167,10 +196,12 @@ async fn delete_user_handler(db: web::Data<Database>, path: web::Path<String>) -
     response
 }
 
-pub fn configure_routes(cfg: &mut web::ServiceConfig) {
+pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_handler)
-        .service(create_user_handler)
         .service(get_user_handler)
         .service(update_user_handler)
         .service(delete_user_handler);
+}
+pub fn configure_public_routes(cfg: &mut web::ServiceConfig) {
+    cfg.service(login_handler).service(create_user_handler);
 }
