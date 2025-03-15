@@ -15,10 +15,10 @@ use std::{
 pub struct AuthMiddleware;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct Claims {
-    sub: String,
+pub struct Claims {
+    pub sub: String,
     exp: usize,
-    role: String,
+    pub role: String,
 }
 
 // Se elimina el bound `Clone` ya que no clonaremos el servicio.
@@ -119,8 +119,10 @@ pub fn generate_token(user_id: String, role:String ) -> String {
     )
     .unwrap()
 }
-pub fn decode_token(token: &str)->Option<Claims>{
+pub fn decode_token(token: &str)->Result<Claims,Error>{
     let clave = env::var("API_KEY").unwrap_or_else(|_| "clave_secreta".into());
-    decode::<Claims>(token, &DecodingKey::from_secret(clave.as_ref()), &Validation::default()).ok().map(|d| d.claims)
+    decode::<Claims>(token, &DecodingKey::from_secret(clave.as_ref()), &Validation::default())
+        .map(|data| data.claims)
+        .map_err(|_| actix_web::error::ErrorUnauthorized("Token inválido o expirado"))
 
 }

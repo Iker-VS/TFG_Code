@@ -1,3 +1,5 @@
+use std::clone;
+
 use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
@@ -113,45 +115,81 @@ async fn create_group_handler(
     }
 }
 
+async fn update_group(
+    db: &Database,
+    group_id: String,
+    updated_group: web::Json<Group>,
+) -> HttpResponse {
+    let collection = db.collection::<Group>("groups");
+    let obj_id = match ObjectId::parse_str(group_id.clone()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    if updated_group.user_count == 0 {
+        return delete_group(db, group_id).await;
+    } else {
+        let mut update_doc = doc! {
+            "$set": {
+                "name": updated_group.name.clone(),
+                "userCount":updated_group.user_count.clone(),
+                "groupCode":updated_group.group_code.clone(),
+            }
+        };
+
+        if let Some(user_max) = &updated_group.user_max {
+            update_doc
+                .get_mut("$set")
+                .unwrap()
+                .as_document_mut()
+                .unwrap()
+                .insert("userMax", user_max.clone());
+        } else {
+            update_doc.insert("$unset", doc! {"user_max": ""});
+        }
+
+        if let Some(tags) = &updated_group.tags {
+            update_doc
+                .get_mut("$set")
+                .unwrap()
+                .as_document_mut()
+                .unwrap()
+                .insert("tags", tags.clone());
+        } else {
+            update_doc.insert("$unset", doc! {"tags": ""});
+        }
+
+        match collection
+            .update_one(doc! {"_id": obj_id}, update_doc)
+            .await
+        {
+            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
+            Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
+            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        }
+    }
+}
+
 #[put("/groups/{id}")]
 async fn update_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_group: web::Json<Group>,
 ) -> impl Responder {
-    let collection = db.collection::<Group>("groups");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    let mut update_doc = doc! {
-        "$set": {
-            "name": updated_group.name.clone(),
-            "userCount":updated_group.user_count.clone(),
-            "groupCode":updated_group.group_code.clone(),
-        }
-    };
+    session.start_transaction().await.ok();
+    let response = update_group(&db, path.into_inner(),updated_group).await;
 
-    if let Some(user_max) = &updated_group.user_max {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userMax", user_max.clone());
+    if response.status().is_success() {
+        session.commit_transaction().await.ok();
     } else {
-        update_doc.insert("$unset", doc! {"user_max": ""});
-    }
-    
-    if let Some(tags) = &updated_group.tags {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"tags": ""});
+        session.abort_transaction().await.ok();
     }
 
-    match collection
-        .update_one(doc! {"_id": obj_id}, update_doc)
-        .await
-    {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
-        Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
-    }
+    response
 }
 
 pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
@@ -207,7 +245,10 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
 }
 
 #[delete("/groups/{id}")]
-async fn delete_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+pub async fn delete_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,

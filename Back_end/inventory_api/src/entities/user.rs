@@ -1,7 +1,7 @@
 use super::user_group::UserGroup;
-use crate::entities::user_group::delete_user_group;
-use crate::middleware::auth;
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use crate::middleware::auth::{self, Claims};
+use crate::{entities::user_group::delete_user_group, middleware::auth::decode_token};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -98,6 +98,7 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
     }
     let mut user = new_user.into_inner();
     user.id = None;
+    user.admin=None;
     match collection.insert_one(user).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
@@ -109,9 +110,25 @@ async fn update_user_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_user: web::Json<User>,
+    req:HttpRequest,
 ) -> impl Responder {
+    let auth_header = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok());
+    let token = auth_header
+        .map(|s| s.trim_start_matches("Bearer ").trim())
+        .unwrap_or("");
+    let claims = match decode_token(token) {
+        Ok(claims) => claims,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+    let user_id = path.into_inner();
+    if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_id)) {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<User>("users");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+    let obj_id = match ObjectId::parse_str(&user_id) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
@@ -123,13 +140,15 @@ async fn update_user_handler(
         }
     };
 
-    if let Some(admin) = &updated_user.admin {
+    if let Some(admin) = &updated_user.admin  {
+        if claims.role =="admin"{
         update_doc
             .get_mut("$set")
             .unwrap()
             .as_document_mut()
             .unwrap()
             .insert("admin", admin.clone());
+        }
     } else {
         update_doc.insert("$unset", doc! {"admin": ""});
     }
@@ -179,14 +198,33 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
 }
 
 #[delete("/users/{id}")]
-async fn delete_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn delete_user_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    req: HttpRequest,
+) -> impl Responder {
     let client = db.client();
+    let auth_header = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok());
+    let token = auth_header
+        .map(|s| s.trim_start_matches("Bearer ").trim())
+        .unwrap_or("");
+    let claims = match decode_token(token) {
+        Ok(claims) => claims,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+    let user_id = path.into_inner();
+    if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_id)) {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let mut session = match client.start_session().await {
         Ok(s) => s,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     session.start_transaction().await.ok();
-    let response = delete_user(&db, path.into_inner()).await;
+    let response = delete_user(&db, user_id).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();

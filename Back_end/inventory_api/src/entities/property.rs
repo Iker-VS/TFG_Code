@@ -98,7 +98,6 @@ async fn create_property_handler(
     }
 }
 
-
 #[put("/properties/{id}")]
 async fn update_property_handler(
     db: web::Data<Database>,
@@ -118,17 +117,26 @@ async fn update_property_handler(
     };
 
     if let Some(direction) = &updated_property.direction {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("direction", direction.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("direction", direction.clone());
     } else {
         update_doc.insert("$unset", doc! {"direction": ""});
     }
-    
+
     if let Some(user_id) = &updated_property.user_id {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userId", user_id.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("userId", user_id.clone());
     } else {
         update_doc.insert("$unset", doc! {"userId": ""});
     }
-
 
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)

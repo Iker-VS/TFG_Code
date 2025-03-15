@@ -1,12 +1,14 @@
 use std::fmt::Debug;
 
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
     Database,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::middleware::auth::decode_token;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Log {
@@ -33,7 +35,10 @@ impl Log {
 }
 
 #[get("/logs")]
-async fn get_logs_handler(db: web::Data<Database>) -> impl Responder {
+async fn get_logs_handler(db: web::Data<Database>, rep: HttpRequest) -> impl Responder {
+    if !check_admin(rep).await {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<Log>("logs");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
@@ -47,7 +52,10 @@ async fn get_logs_handler(db: web::Data<Database>) -> impl Responder {
 }
 
 #[get("/logs/{id}")]
-async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>,rep:HttpRequest) -> impl Responder {
+    if !check_admin(rep).await {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<Log>("logs");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
@@ -61,11 +69,14 @@ async fn get_log_handler(db: web::Data<Database>, path: web::Path<String>) -> im
 }
 
 #[post("/logs")]
-async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>) -> impl Responder {
+async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>,rep: HttpRequest) -> impl Responder {
+    if !check_admin(rep).await {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<Log>("logs");
     let mut log = new_log.into_inner();
     log.id = None;
-    log.time=DateTime::now();
+    log.time = DateTime::now();
     match collection.insert_one(log).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
@@ -77,7 +88,11 @@ async fn update_log_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_log: web::Json<Log>,
+    rep:HttpRequest,
 ) -> impl Responder {
+    if !check_admin(rep).await {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<Log>("logs");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -102,7 +117,10 @@ async fn update_log_handler(
 }
 
 #[delete("/logs/{id}")]
-async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>,rep:HttpRequest) -> impl Responder {
+    if !check_admin(rep).await {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
     let collection = db.collection::<Log>("logs");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -115,6 +133,19 @@ async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>) ->
     }
 }
 
+pub async fn check_admin(rep: HttpRequest) -> bool {
+    let auth_header = rep
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok());
+    let token = auth_header
+        .map(|s| s.trim_start_matches("Bearer ").trim())
+        .unwrap_or("");
+    match decode_token(token) {
+        Ok(claims) => return claims.role == "admin",
+        Err(_) => return false,
+    };
+}
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)
         .service(get_logs_handler)
