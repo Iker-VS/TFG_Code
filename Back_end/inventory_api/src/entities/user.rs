@@ -1,5 +1,5 @@
 use super::user_group::UserGroup;
-use crate::middleware::auth::{self, Claims};
+use crate::middleware::auth::{self};
 use crate::{entities::user_group::delete_user_group, middleware::auth::decode_token};
 use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
