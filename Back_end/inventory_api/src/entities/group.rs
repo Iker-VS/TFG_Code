@@ -1,6 +1,6 @@
 use std::clone;
 
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -9,7 +9,7 @@ use mongodb::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::user_group::UserGroup;
+use crate::{entities::user_group::UserGroup, middleware::auth::decode_token};
 
 use super::{
     property::{delete_property, Property},
@@ -174,14 +174,40 @@ async fn update_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_group: web::Json<Group>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let auth_header = req
+        .headers()
+        .get("Authorization")
+        .and_then(|h| h.to_str().ok());
+    let token = auth_header
+        .map(|s| s.trim_start_matches("Bearer ").trim())
+        .unwrap_or("");
+    let claims = match decode_token(token) {
+        Ok(claims) => claims,
+        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    };
+    let gorup_id = path.into_inner();
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    let user_group = match user_group_collection.find_one(doc! {"groupId": &gorup_id}).await {
+        Ok(Some(user_group)) => user_group,
+        Ok(None)=>return HttpResponse::NotFound().body("el Usuario no pertenece a este grupo"),
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+    
+
+    
+    if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_group.user_id.to_string() && gorup_id == user_group.group_id.to_string())) {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
+
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     session.start_transaction().await.ok();
-    let response = update_group(&db, path.into_inner(),updated_group).await;
+    let response = update_group(&db, gorup_id, updated_group).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
