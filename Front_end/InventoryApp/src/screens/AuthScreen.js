@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useContext } from "react"
+import { useState, useContext, useEffect } from "react"
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import {
 } from "react-native"
 import { AuthContext } from "../context/AuthContext"
 import { ThemeContext } from "../context/ThemeContext"
+import { validatePassword } from "../utils/password"
+import { Ionicons } from "@expo/vector-icons"
 
 const AuthScreen = () => {
   const [isLogin, setIsLogin] = useState(true)
@@ -21,9 +23,37 @@ const AuthScreen = () => {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [passwordsMatch, setPasswordsMatch] = useState(null)
+  const [passwordStrength, setPasswordStrength] = useState(null)
 
-  const { login, register, error } = useContext(AuthContext)
+  const { login, register, error,clearErrors } = useContext(AuthContext)
   const { theme } = useContext(ThemeContext)
+
+  
+  // Clear password match status when switching between login and register
+  useEffect(() => {
+    setPasswordsMatch(null)
+    setPasswordStrength(null)
+  }, [isLogin])
+
+  // Check password match and strength when either password changes
+  useEffect(() => {
+    if (!isLogin) {
+      // Only check password match if both fields have values
+      if (password && confirmPassword) {
+        setPasswordsMatch(password === confirmPassword)
+      } else {
+        setPasswordsMatch(null)
+      }
+
+      // Check password strength if password field has a value
+      if (password) {
+        setPasswordStrength(validatePassword(password))
+      } else {
+        setPasswordStrength(null)
+      }
+    }
+  }, [password, confirmPassword, isLogin])
 
   const validateForm = () => {
     if (isLogin) {
@@ -36,8 +66,12 @@ const AuthScreen = () => {
         Alert.alert("Error", "Por favor completa todos los campos")
         return false
       }
+      if (!passwordStrength) {
+        Alert.alert("Error", "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número")
+        return false
+      }
 
-      if (password !== confirmPassword) {
+      if (!passwordsMatch) {
         Alert.alert("Error", "Las contraseñas no coinciden")
         return false
       }
@@ -51,8 +85,27 @@ const AuthScreen = () => {
     if (isLogin) {
       login(email, password)
     } else {
-      register(name, email, password)
+      register(name, email, password, confirmPassword)
     }
+  }
+   // Toggle between login and register views
+   const toggleAuthMode = () => {
+    // Clear form fields
+    if (isLogin) {
+      setName("")
+    } else {
+      setConfirmPassword("")
+    }
+
+    // Reset password validation states
+    setPasswordsMatch(null)
+    setPasswordStrength(null)
+
+    // Clear any error messages
+    clearErrors()
+
+    // Toggle the auth mode
+    setIsLogin(!isLogin)
   }
 
   return (
@@ -68,7 +121,7 @@ const AuthScreen = () => {
 
           {!isLogin && (
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Nombre</Text>
+          {error && <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>}
               <TextInput
                 style={[
                   styles.input,
@@ -123,6 +176,20 @@ const AuthScreen = () => {
               onChangeText={setPassword}
               secureTextEntry
             />
+            {!isLogin && passwordStrength !== null && (
+              <View style={styles.validationContainer}>
+                <Ionicons
+                  name={passwordStrength ? "checkmark-circle" : "close-circle"}
+                  size={16}
+                  color={passwordStrength ? theme.success : theme.error}
+                />
+                <Text style={[styles.validationText, { color: passwordStrength ? theme.success : theme.error }]}>
+                  {passwordStrength
+                    ? "Contraseña segura"
+                    : "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número"}
+                </Text>
+              </View>
+            )}
           </View>
 
           {!isLogin && (
@@ -143,6 +210,18 @@ const AuthScreen = () => {
                 onChangeText={setConfirmPassword}
                 secureTextEntry
               />
+              {passwordsMatch !== null && (
+                <View style={styles.validationContainer}>
+                  <Ionicons
+                    name={passwordsMatch ? "checkmark-circle" : "close-circle"}
+                    size={16}
+                    color={passwordsMatch ? theme.success : theme.error}
+                  />
+                  <Text style={[styles.validationText, { color: passwordsMatch ? theme.success : theme.error }]}>
+                    {passwordsMatch ? "Las contraseñas coinciden" : "Las contraseñas no coinciden"}
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -150,7 +229,7 @@ const AuthScreen = () => {
             <Text style={styles.buttonText}>{isLogin ? "Iniciar Sesión" : "Crear Cuenta"}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.switchButton} onPress={() => setIsLogin(!isLogin)}>
+          <TouchableOpacity style={styles.switchButton} onPress={toggleAuthMode}>
             <Text style={[styles.switchText, { color: theme.primary }]}>
               {isLogin ? "¿No tienes cuenta? Crear una" : "¿Ya tienes cuenta? Iniciar sesión"}
             </Text>
@@ -215,9 +294,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   errorText: {
-    color: "#FF3B30",
     marginBottom: 15,
     textAlign: "center",
+    fontSize: 14,
+  },
+  validationContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+  },
+  validationText: {
+    fontSize: 12,
+    marginLeft: 5,
   },
 })
 

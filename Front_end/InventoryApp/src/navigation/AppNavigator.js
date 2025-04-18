@@ -31,9 +31,12 @@ const AppNavigator = () => {
         drawerActiveTintColor: "#fff",
         drawerInactiveTintColor: theme.text,
         drawerLabelStyle: {
-          marginLeft: -25,
+          marginLeft: 0,
           fontSize: 15,
         },
+        drawerStyle:{
+          width: 240,
+        }
       }}
     >
       <Drawer.Screen name="Home" component={MainScreen} options={{ title: "Inicio" }} />
