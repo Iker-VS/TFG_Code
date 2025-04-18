@@ -70,7 +70,7 @@ const apiRequest = async (endpoint, method = "GET", data = null) => {
   }
 }
 
-// Autenticación - Using /public prefix
+// Modificar la función apiLogin para manejar la nueva estructura de respuesta
 export const apiLogin = async (email, password) => {
   try {
     console.log("Login attempt for:", email)
@@ -80,13 +80,31 @@ export const apiLogin = async (email, password) => {
     console.log("Password hashed successfully")
 
     // Using the correct endpoint format for login
-    return apiRequest(`/public/users/login/${email}/${hashedPassword}`, "POST")
+    const response = await apiRequest(`/public/users/login/${email}/${hashedPassword}`, "POST")
+
+    // La respuesta ahora debería contener directamente el token y el usuario
+    console.log("Login response received:", response)
+
+    return response
   } catch (error) {
     console.error("Login error:", error)
     throw error
   }
 }
 
+// Actualizar fetchUserData para usar 'mail' en lugar de 'email'
+export const fetchUserData = async (userId) => {
+  try {
+    const userData = await apiRequest(`/private/users/${userId}`, "GET")
+    // Adaptar los campos si es necesario
+    return userData
+  } catch (error) {
+    console.error("Error fetching user data:", error)
+    throw error
+  }
+}
+
+// Actualizar apiRegister para usar 'mail' en lugar de 'email'
 export const apiRegister = async (name, email, password) => {
   try {
     console.log("Registration attempt for:", email)
@@ -95,25 +113,14 @@ export const apiRegister = async (name, email, password) => {
     const hashedPassword = await hashPassword(password)
     console.log("Password hashed successfully")
 
-    // Using the correct field names according to the users schema
+    // Usar los nombres de campo correctos según la estructura del backend
     return apiRequest("/public/users/register", "POST", {
       name,
-      mail: email, // Changed from 'mail' to 'email' to match schema
+      mail: email, // Cambiado de 'email' a 'mail' para coincidir con el backend
       passwordHash: hashedPassword,
-      role: "user", // Adding default role
     })
   } catch (error) {
     console.error("Registration error:", error)
-    throw error
-  }
-}
-
-// Función para obtener datos del usuario después del login - Using /private prefix
-export const fetchUserData = async (userId) => {
-  try {
-    return apiRequest(`/private/users/${userId}`, "GET")
-  } catch (error) {
-    console.error("Error fetching user data:", error)
     throw error
   }
 }

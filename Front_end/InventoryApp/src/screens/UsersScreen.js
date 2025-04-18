@@ -21,7 +21,8 @@ const UsersScreen = () => {
 
   // Verificar si el usuario es administrador
   useEffect(() => {
-    if (userData && userData.role !== "admin") {
+    // Verificar si el usuario es administrador usando tanto admin como role
+    if (userData && !userData.admin && userData.role !== "admin") {
       setError("No tienes permisos para acceder a esta sección")
       setIsLoading(false)
     }
@@ -30,7 +31,8 @@ const UsersScreen = () => {
   // Cargar usuarios al enfocar la pantalla
   useFocusEffect(
     useCallback(() => {
-      if (userToken && userData?.role === "admin") {
+      // Verificar si el usuario es administrador usando tanto admin como role
+      if (userToken && (userData?.admin === true || userData?.role === "admin")) {
         loadUsers()
       }
     }, [userToken, userData]),

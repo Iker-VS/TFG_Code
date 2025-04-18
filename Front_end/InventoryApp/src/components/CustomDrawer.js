@@ -11,16 +11,23 @@ const CustomDrawer = (props) => {
   const { logout, userData } = useContext(AuthContext)
   const { theme, themeMode, toggleTheme } = useContext(ThemeContext)
 
+  // Determinar si el usuario es administrador
+  const isAdmin = userData?.admin === true || userData?.role === "admin"
+
+  // Obtener el nombre y correo del usuario
+  const userName = userData?.name || "Usuario"
+  const userEmail = userData?.email || userData?.mail || "usuario@ejemplo.com"
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.background }}>
       <DrawerContentScrollView {...props} contentContainerStyle={{ backgroundColor: theme.background }}>
         <View style={[styles.userSection, { backgroundColor: theme.primary }]}>
           <View style={styles.userInfo}>
             <View style={styles.userAvatar}>
-              <Text style={styles.userInitial}>{userData?.name ? userData.name.charAt(0).toUpperCase() : "U"}</Text>
+              <Text style={styles.userInitial}>{userName ? userName.charAt(0).toUpperCase() : "U"}</Text>
             </View>
-            <Text style={styles.userName}>{userData?.name || "Usuario"}</Text>
-            <Text style={styles.userEmail}>{userData?.email || "usuario@ejemplo.com"}</Text>
+            <Text style={styles.userName}>{userName}</Text>
+            <Text style={styles.userEmail}>{userEmail}</Text>
           </View>
         </View>
         <View style={{ flex: 1, backgroundColor: theme.background, paddingTop: 10 }}>

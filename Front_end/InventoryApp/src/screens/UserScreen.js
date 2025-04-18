@@ -16,14 +16,35 @@ const UserScreen = () => {
   const [error, setError] = useState(null)
   const [showForm, setShowForm] = useState(false)
 
+  // Determinar si el usuario es administrador
+  const isAdmin = userData?.admin === true || userData?.role === "admin"
+
+  // Obtener el nombre y correo del usuario
+  const userName = userData?.name || "Usuario"
+  const userEmail = userData?.email || userData?.mail || "usuario@ejemplo.com"
+
   // Actualizar información del usuario
   const handleUpdateUser = async (formData) => {
     setIsLoading(true)
     setError(null)
 
     try {
-      const response = await updateUser(formData)
-      setUserData(response)
+      // Adaptar los campos para coincidir con el backend
+      const backendData = {
+        ...formData,
+        mail: formData.email, // Convertir email a mail para el backend
+      }
+
+      const response = await updateUser(backendData)
+
+      // Adaptar la respuesta para la aplicación
+      const updatedUserData = {
+        ...response,
+        email: response.mail, // Mantener email para consistencia en la app
+        role: response.admin ? "admin" : "user", // Mantener role para consistencia en la app
+      }
+
+      setUserData(updatedUserData)
       setShowForm(false)
       Alert.alert("Éxito", "Información actualizada correctamente")
     } catch (err) {
@@ -75,14 +96,14 @@ const UserScreen = () => {
       <View style={[styles.userCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={[styles.userAvatar, { backgroundColor: theme.primary + "30" }]}>
           <Text style={[styles.userInitial, { color: theme.primary }]}>
-            {userData.name ? userData.name.charAt(0).toUpperCase() : "U"}
+            {userName ? userName.charAt(0).toUpperCase() : "U"}
           </Text>
         </View>
 
-        <Text style={[styles.userName, { color: theme.text }]}>{userData.name}</Text>
-        <Text style={[styles.userEmail, { color: theme.text + "CC" }]}>{userData.email}</Text>
+        <Text style={[styles.userName, { color: theme.text }]}>{userName}</Text>
+        <Text style={[styles.userEmail, { color: theme.text + "CC" }]}>{userEmail}</Text>
 
-        {userData.role === "admin" && (
+        {isAdmin && (
           <View style={[styles.adminBadge, { backgroundColor: theme.primary }]}>
             <Text style={styles.adminBadgeText}>Administrador</Text>
           </View>

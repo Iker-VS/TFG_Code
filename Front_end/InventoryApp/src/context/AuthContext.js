@@ -2,7 +2,7 @@
 
 import { createContext, useState, useEffect } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
-import { apiLogin, apiRegister, fetchUserData } from "../services/api"
+import { apiLogin, apiRegister } from "../services/api"
 import { validatePassword } from "../utils/password"
 
 export const AuthContext = createContext()
@@ -53,13 +53,14 @@ export const AuthProvider = ({ children }) => {
       )
 
       const payload = JSON.parse(jsonPayload)
-      return payload.sub || null
+      return payload.sub || payload.id || null // Added payload.id as fallback
     } catch (e) {
       console.error("Error extracting user ID from token:", e)
       return null
     }
   }
 
+  // Modificar la función login para manejar la nueva estructura de respuesta
   const login = async (email, password) => {
     setIsLoading(true)
     setError(null)
@@ -74,33 +75,27 @@ export const AuthProvider = ({ children }) => {
       if (response && response.token) {
         console.log("Login successful, token received")
 
-        // Extract user ID from token
-        const userId = extractUserIdFromToken(response.token)
-        console.log("Extracted user ID:", userId)
+        // La respuesta ahora incluye tanto el token como el usuario
+        const token = response.token
+        let userInfo = response.user || {}
 
-        // Create basic user data
-        let userInfo = response.user || { id: userId, email: email }
-
-        // Try to fetch more user data if we have an ID
-        if (userId) {
-          try {
-            const userData = await fetchUserData(userId)
-            if (userData) {
-              userInfo = { ...userInfo, ...userData }
-            }
-          } catch (userDataError) {
-            console.warn("Could not fetch additional user data:", userDataError)
-            // Continue with basic user info
+        // Adaptar los campos del usuario para que coincidan con nuestra aplicación
+        if (userInfo) {
+          // Convertir 'mail' a 'email' y 'admin' a 'role' para mantener consistencia en la app
+          userInfo = {
+            ...userInfo,
+            email: userInfo.mail || email, // Usar mail del backend o el email proporcionado
+            role: userInfo.admin ? "admin" : "user", // Convertir admin (bool) a role (string)
           }
         }
 
-        setUserToken(response.token)
+        setUserToken(token)
         setUserData(userInfo)
 
-        await AsyncStorage.setItem("userToken", response.token)
+        await AsyncStorage.setItem("userToken", token)
         await AsyncStorage.setItem("userData", JSON.stringify(userInfo))
 
-        console.log("User data saved successfully")
+        console.log("User data saved successfully:", userInfo)
       } else {
         console.log("Login failed: No token in response")
         setError("Credenciales inválidas")
@@ -113,6 +108,7 @@ export const AuthProvider = ({ children }) => {
     }
   }
 
+  // Modificar la función register para usar los campos correctos
   const register = async (name, email, password, confirmPassword) => {
     setIsLoading(true)
     setError(null)
@@ -141,24 +137,27 @@ export const AuthProvider = ({ children }) => {
       if (response && response.token) {
         console.log("Registration successful, token received")
 
-        // Extract user ID from token or use provided user data
-        const userId = extractUserIdFromToken(response.token)
-        console.log("Extracted user ID:", userId)
+        // La respuesta ahora incluye tanto el token como el usuario
+        const token = response.token
+        let userInfo = response.user || {}
 
-        // Create user data
-        const userInfo = response.user || {
-          id: userId,
-          name: name,
-          email: email,
+        // Adaptar los campos del usuario para que coincidan con nuestra aplicación
+        if (userInfo) {
+          // Convertir 'mail' a 'email' y 'admin' a 'role' para mantener consistencia en la app
+          userInfo = {
+            ...userInfo,
+            email: userInfo.mail || email, // Usar mail del backend o el email proporcionado
+            role: userInfo.admin ? "admin" : "user", // Convertir admin (bool) a role (string)
+          }
         }
 
-        setUserToken(response.token)
+        setUserToken(token)
         setUserData(userInfo)
 
-        await AsyncStorage.setItem("userToken", response.token)
+        await AsyncStorage.setItem("userToken", token)
         await AsyncStorage.setItem("userData", JSON.stringify(userInfo))
 
-        console.log("User data saved successfully")
+        console.log("User data saved successfully:", userInfo)
       } else {
         console.log("Registration failed: No token in response")
         setError("Error al crear la cuenta")

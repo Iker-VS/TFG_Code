@@ -16,7 +16,7 @@ const Drawer = createDrawerNavigator()
 const AppNavigator = () => {
   const { userData } = useContext(AuthContext)
   const { theme } = useContext(ThemeContext)
-  const isAdmin = userData?.role === "admin"
+  const isAdmin = userData?.admin === true || userData?.role === "admin"
 
   return (
     <Drawer.Navigator
