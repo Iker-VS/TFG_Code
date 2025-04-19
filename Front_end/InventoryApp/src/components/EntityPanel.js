@@ -8,48 +8,67 @@ import { Ionicons } from "@expo/vector-icons"
 const EntityPanel = ({ entity, onPress, type }) => {
   const { theme } = useContext(ThemeContext)
 
-  // Determinar qué campos mostrar según el tipo de entidad
+  // Ensure entity has all required properties with defaults
+  const safeEntity = {
+    name: entity?.name || "Sin nombre",
+    description: entity?.description || "Sin descripción",
+    address: entity?.address || "",
+    status: entity?.status || "",
+    userCount: entity?.userCount || 0,
+    userMax: entity?.userMax || null,
+    ...entity,
+  }
+
+  // Enhance EntityPanel to display group information better
   const renderFields = () => {
     switch (type) {
       case "group":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{entity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
-              {entity.description || "Sin descripción"}
+              {safeEntity.description || "No description"}
             </Text>
+            {safeEntity.userCount !== undefined && (
+              <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
+                Members: {safeEntity.userCount}
+                {safeEntity.userMax ? ` / ${safeEntity.userMax}` : ""}
+              </Text>
+            )}
           </>
         )
       case "property":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{entity.name}</Text>
-            <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>{entity.address || "Sin dirección"}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
+            <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
+              {safeEntity.address || "No address"}
+            </Text>
           </>
         )
       case "zone":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{entity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
-              {entity.description || "Sin descripción"}
+              {safeEntity.description || "No description"}
             </Text>
           </>
         )
       case "item":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{entity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
-              {entity.description || "Sin descripción"}
+              {safeEntity.description || "No description"}
             </Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
-              Estado: {entity.status || "No especificado"}
+              Status: {safeEntity.status || "Not specified"}
             </Text>
           </>
         )
       default:
-        return <Text style={[styles.entityName, { color: theme.text }]}>{entity.name}</Text>
+        return <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
     }
   }
 

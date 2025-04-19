@@ -36,6 +36,7 @@ import {
   deleteZone,
   deleteItem,
 } from "../services/api"
+import { normalizeId, isValidId } from "../utils/idUtils"
 
 const MainScreen = ({ navigation }) => {
   const { theme } = useContext(ThemeContext)
@@ -72,7 +73,7 @@ const MainScreen = ({ navigation }) => {
       if (navigationPath.length === 0) {
         // Nivel de grupos
         const response = await fetchGroups()
-        data = response
+        data = response || [] // Ensure we always have an array
         setCurrentLevel("group")
         setCurrentParentId(null)
       } else {
@@ -81,19 +82,19 @@ const MainScreen = ({ navigation }) => {
         if (lastItem.type === "group") {
           // Nivel de propiedades
           const response = await fetchProperties(lastItem.id)
-          data = response
+          data = response || [] // Ensure we always have an array
           setCurrentLevel("property")
           setCurrentParentId(lastItem.id)
         } else if (lastItem.type === "property") {
           // Nivel de zonas (de una propiedad)
           const response = await fetchZones(lastItem.id)
-          data = response
+          data = response || [] // Ensure we always have an array
           setCurrentLevel("zone")
           setCurrentParentId(lastItem.id)
         } else if (lastItem.type === "zone") {
           // Nivel de subzonas y objetos
-          const zonesResponse = await fetchSubZones(lastItem.id)
-          const itemsResponse = await fetchItems(lastItem.id)
+          const zonesResponse = (await fetchSubZones(lastItem.id)) || []
+          const itemsResponse = (await fetchItems(lastItem.id)) || []
 
           // Marcar las zonas y objetos para diferenciarlos
           const zones = zonesResponse.map((zone) => ({ ...zone, entityType: "zone" }))
@@ -119,7 +120,7 @@ const MainScreen = ({ navigation }) => {
     const newPath = [
       ...navigationPath,
       {
-        id: entity.id,
+        id: normalizeId(entity.id || entity._id),
         name: entity.name,
         type: entity.entityType || currentLevel,
       },
@@ -172,12 +173,18 @@ const MainScreen = ({ navigation }) => {
     setError(null)
 
     try {
+      const entityId = normalizeId(editingEntity.id || editingEntity._id)
+
+      if (!isValidId(entityId)) {
+        throw new Error("Invalid entity ID format")
+      }
+
       if (editingEntity.entityType === "property" || currentLevel === "property") {
-        await updateProperty(editingEntity.id, formData)
+        await updateProperty(entityId, formData)
       } else if (editingEntity.entityType === "zone" || (currentLevel === "zone" && !editingEntity.entityType)) {
-        await updateZone(editingEntity.id, formData)
+        await updateZone(entityId, formData)
       } else if (editingEntity.entityType === "item") {
-        await updateItem(editingEntity.id, formData)
+        await updateItem(entityId, formData)
       }
 
       setShowForm(false)
@@ -203,12 +210,18 @@ const MainScreen = ({ navigation }) => {
           setError(null)
 
           try {
+            const entityId = normalizeId(entity.id || entity._id)
+
+            if (!isValidId(entityId)) {
+              throw new Error("Invalid entity ID format")
+            }
+
             if (entity.entityType === "property" || currentLevel === "property") {
-              await deleteProperty(entity.id)
+              await deleteProperty(entityId)
             } else if (entity.entityType === "zone" || (currentLevel === "zone" && !entity.entityType)) {
-              await deleteZone(entity.id)
+              await deleteZone(entityId)
             } else if (entity.entityType === "item") {
-              await deleteItem(entity.id)
+              await deleteItem(entityId)
             }
 
             loadData()
@@ -303,6 +316,11 @@ const MainScreen = ({ navigation }) => {
     return currentLevel
   }
 
+  // Función segura para extraer el ID
+  const getEntityId = (item) => {
+    return normalizeId(item?.id || item?._id) || Math.random().toString()
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Barra de búsqueda */}
@@ -348,7 +366,7 @@ const MainScreen = ({ navigation }) => {
       ) : (
         <FlatList
           data={entities}
-          keyExtractor={(item) => item.id.toString()}
+          keyExtractor={(item) => getEntityId(item)}
           contentContainerStyle={styles.listContainer}
           renderItem={({ item }) => (
             <SwipeablePanel
@@ -394,7 +412,7 @@ const MainScreen = ({ navigation }) => {
               type={getFormEntityType()}
               initialData={editingEntity || {}}
               onSubmit={(formData) => {
-                if (editingEntity && editingEntity.id) {
+                if (editingEntity && (editingEntity.id || editingEntity._id)) {
                   handleUpdate(formData)
                 } else {
                   handleCreate(formData)

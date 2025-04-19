@@ -26,14 +26,26 @@ const AuthScreen = () => {
   const [passwordsMatch, setPasswordsMatch] = useState(null)
   const [passwordStrength, setPasswordStrength] = useState(null)
 
-  const { login, register, error,clearErrors } = useContext(AuthContext)
+  const { login, register, error, clearErrors, registrationSuccess, setRegistrationSuccess } = useContext(AuthContext)
   const { theme } = useContext(ThemeContext)
 
-  
+  // Autocompletar campos después de un registro exitoso
+  useEffect(() => {
+    if (registrationSuccess && isLogin) {
+      // Auto-fill the login form with registration credentials
+      setEmail(registrationSuccess.email || "")
+      setPassword(registrationSuccess.password || "")
+
+      // Optional: Show a toast or message to inform the user
+      console.log("Login form auto-filled with registration credentials")
+    }
+  }, [registrationSuccess, isLogin])
+
   // Clear password match status when switching between login and register
   useEffect(() => {
     setPasswordsMatch(null)
     setPasswordStrength(null)
+    clearErrors()
   }, [isLogin])
 
   // Check password match and strength when either password changes
@@ -66,6 +78,7 @@ const AuthScreen = () => {
         Alert.alert("Error", "Por favor completa todos los campos")
         return false
       }
+
       if (!passwordStrength) {
         Alert.alert("Error", "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número")
         return false
@@ -79,22 +92,34 @@ const AuthScreen = () => {
     return true
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validateForm()) return
 
     if (isLogin) {
       login(email, password)
     } else {
-      register(name, email, password, confirmPassword)
+      const success = await register(name, email, password, confirmPassword)
+      if (success) {
+        // Si el registro fue exitoso, cambiar a la pantalla de login
+        setIsLogin(true)
+      }
     }
   }
-   // Toggle between login and register views
-   const toggleAuthMode = () => {
+
+  // Toggle between login and register views
+  const toggleAuthMode = () => {
     // Clear form fields
     if (isLogin) {
       setName("")
+      // Don't clear email and password if coming from successful registration
+      if (!registrationSuccess) {
+        setEmail("")
+        setPassword("")
+      }
+      setConfirmPassword("")
     } else {
       setConfirmPassword("")
+      // Don't clear registration success data when switching to login
     }
 
     // Reset password validation states
@@ -117,11 +142,11 @@ const AuthScreen = () => {
         <View style={styles.formContainer}>
           <Text style={[styles.title, { color: theme.text }]}>{isLogin ? "Iniciar Sesión" : "Crear Cuenta"}</Text>
 
-          {error && <Text style={styles.errorText}>{error}</Text>}
+          {error && <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>}
 
           {!isLogin && (
             <View style={styles.inputContainer}>
-          {error && <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>}
+              <Text style={[styles.label, { color: theme.text }]}>Nombre</Text>
               <TextInput
                 style={[
                   styles.input,
