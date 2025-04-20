@@ -14,7 +14,7 @@ use std::{
 /// Middleware de autenticación.
 pub struct AuthMiddleware;
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize,Clone)]
 pub struct Claims {
     pub sub: String,
     exp: usize,
@@ -77,7 +77,7 @@ where
                         Err(actix_web::error::ErrorBadRequest("ID inválido"))
                     } else {
                         // Inserta el ID en las extensiones de la request.
-                        req.extensions_mut().insert(data.claims.sub);
+                        req.extensions_mut().insert(data.claims);
                         Ok(req)
                     }
                 }

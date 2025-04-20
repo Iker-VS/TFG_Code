@@ -1,5 +1,5 @@
 use crate::entities::item::{delete_item, Item};
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -69,19 +69,42 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 async fn get_zone_from_parent_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> impl Responder {
-    let zone_collection = db.collection::<Zone>("zones");
+    // Recupera las claims ya inyectadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
     let parent_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(parent_id) => parent_id,
+        Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let zone_cursor = match zone_collection.find(doc! {"parentZoneId":parent_id}).await {
-        Ok(zone_cursor) => zone_cursor,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+
+    let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Token user ID inválido"),
+    };
+
+    // Filtro: parentZoneId igual al proporcionado y userId no existente o igual al del token.
+    let zone_collection = db.collection::<Zone>("zones");
+    let zone_cursor = match zone_collection
+        .find(doc! {
+            "parentZoneId": parent_id,
+            "$or": [
+                { "userId": { "$exists": false } },
+                { "userId": token_user_obj_id }
+            ]
+        })
+        .await
+    {
+        Ok(cursor) => cursor,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     HttpResponse::Ok().json(zones)
 }
@@ -115,12 +138,22 @@ async fn update_zones_handler(
         }
     };
     if let Some(user_id) = &updated_zone.user_id {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userId", user_id.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("userId", user_id.clone());
     } else {
         update_doc.insert("$unset", doc! {"userId": ""});
     }
     if let Some(parent_zone_id) = &updated_zone.parent_zone_id {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("parentZoneId", parent_zone_id.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("parentZoneId", parent_zone_id.clone());
     } else {
         update_doc.insert("$unset", doc! {"parentZoneId": ""});
     }

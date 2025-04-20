@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -67,20 +67,48 @@ async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) 
 async fn get_properties_from_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> impl Responder {
-    let properties_collection = db.collection::<Property>("properties");
+    // Recupera las claims inyectadas por el middleware
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(group_id) => group_id,
+        Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let properties_cursor = match properties_collection.find(doc! {"groupId":group_id}).await {
-        Ok(properties_cursor) => properties_cursor,
+
+    let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Token user ID inválido"),
+    };
+
+    let properties_collection = db.collection::<Property>("properties");
+    let cursor = match properties_collection
+        .find(doc! {
+            "groupId": group_id,
+            "$or": [
+                { "userId": { "$exists": false } },
+                { "userId": token_user_obj_id }
+            ]
+        })
+        .await
+    {
+        Ok(cursor) => cursor,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    let properties: Vec<Property> = match properties_cursor.try_collect().await {
-        Ok(properties) => properties,
+
+    let properties: Vec<Property> = match cursor.try_collect().await {
+        Ok(props) => props,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+
     HttpResponse::Ok().json(properties)
 }
 

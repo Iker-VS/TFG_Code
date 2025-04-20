@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
@@ -8,7 +8,7 @@ use mongodb::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::middleware::auth::decode_token;
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Log {
@@ -133,18 +133,11 @@ async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>,rep
     }
 }
 
-pub async fn check_admin(rep: HttpRequest) -> bool {
-    let auth_header = rep
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok());
-    let token = auth_header
-        .map(|s| s.trim_start_matches("Bearer ").trim())
-        .unwrap_or("");
-    match decode_token(token) {
-        Ok(claims) => return claims.role == "admin",
-        Err(_) => return false,
-    };
+pub async fn check_admin(req: HttpRequest) -> bool {
+    if let Some(claims) = req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        return claims.role == "admin";
+    }
+    false
 }
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)

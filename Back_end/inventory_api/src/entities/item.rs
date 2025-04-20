@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{self, doc, oid::ObjectId, DateTime},
@@ -84,35 +84,49 @@ async fn get_item_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
-// #[get("/items/tag/{tag}/{group_id}")]
-// async fn get_items_with_tag_in_group(db: web::Data<Database>, path: web::Path<String,String>) -> impl Responder {
-//     let items_collection =db.collection::<Item>("items");
-//     let tag = path.into_inner();
-//     let items_cursor =match items_collection.find(doc! {tag: $all{tag}}) {
-//         Ok(items_cursor)=>items_cursor,
-//         Err(_) =>return HttpResponse::BadRequest().body(""),
-//     };
-// return HttpResponse::Ok().body("body");
-// }
 
 #[get("/items/zone/{id}")]
 async fn get_items_from_zone_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
+    req: HttpRequest,
 ) -> impl Responder {
-    let items_collection = db.collection::<Item>("items");
+    // Recupera las claims inyectadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
     let zone_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(zone_id) => zone_id,
+        Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let items_cursor = match items_collection.find(doc! {"zoneId":zone_id}).await {
-        Ok(items_cursor) => items_cursor,
-        Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
+
+    // Convertir el id del usuario (claims.sub) a ObjectId
+    let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("Token user ID inválido"),
     };
-    let items: Vec<Item> = match items_cursor.try_collect().await {
+
+    let items_collection = db.collection::<Item>("items");
+    let cursor = match items_collection
+        .find(doc! {
+            "zoneId": zone_id,
+            "$or": [
+                { "userId": { "$exists": false } },
+                { "userId": token_user_obj_id }
+            ]
+        }).await
+    {
+        Ok(cursor) => cursor,
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+    };
+
+    let items: Vec<Item> = match cursor.try_collect().await {
         Ok(items) => items,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+
     HttpResponse::Ok().json(items)
 }
 

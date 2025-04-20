@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder, HttpMessage};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -7,7 +7,7 @@ use mongodb::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::{entities::user_group::UserGroup, middleware::auth::decode_token};
+use crate::entities::user_group::UserGroup;
 
 use super::{
     property::{delete_property, Property},
@@ -187,17 +187,12 @@ async fn update_group_handler(
     updated_group: web::Json<Group>,
     req: HttpRequest,
 ) -> impl Responder {
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok());
-    let token = auth_header
-        .map(|s| s.trim_start_matches("Bearer ").trim())
-        .unwrap_or("");
-    let claims = match decode_token(token) {
-        Ok(claims) => claims,
-        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    // Clona las claims para evitar problemas de ciclo de vida
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
+
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(group_id) => group_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
@@ -208,7 +203,7 @@ async fn update_group_handler(
         .await
     {
         Ok(Some(user_group)) => user_group,
-        Ok(None) => return HttpResponse::NotFound().body("el Usuario no pertenece a este grupo"),
+        Ok(None) => return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo"),
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
 
@@ -232,7 +227,7 @@ async fn update_group_handler(
         session.commit_transaction().await.ok();
     } else {
         session.abort_transaction().await.ok();
-    }
+    } 
 
     response
 }

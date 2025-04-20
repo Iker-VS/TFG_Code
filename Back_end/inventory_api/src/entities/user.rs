@@ -1,7 +1,7 @@
 use super::user_group::UserGroup;
 use crate::middleware::auth::{self};
-use crate::{entities::user_group::delete_user_group, middleware::auth::decode_token};
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
+use crate::{entities::user_group::delete_user_group};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -112,8 +112,16 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
     let mut user = new_user.into_inner();
     user.id = None;
     user.admin=None;
-    match collection.insert_one(user).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
+    match collection.insert_one(&user).await {
+        Ok(result) => {
+            user.id= result.inserted_id.as_object_id();
+            let token = auth::generate_token(result.inserted_id.to_string(),"user".to_string());
+            HttpResponse::Ok().json(serde_json::json!({
+                "token": token,
+                "user": user
+            }))
+        }
+     
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
@@ -124,28 +132,25 @@ async fn update_user_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_user: web::Json<User>,
-    req:HttpRequest,
+    req: HttpRequest,
 ) -> impl Responder {
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok());
-    let token = auth_header
-        .map(|s| s.trim_start_matches("Bearer ").trim())
-        .unwrap_or("");
-    let claims = match decode_token(token) {
-        Ok(claims) => claims,
-        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    // Recupera las claims ya decodificadas del middleware (se asume que Claims implementa Clone)
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
+
     let user_id = path.into_inner();
     if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_id)) {
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
     }
+
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&user_id) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
+
     let mut update_doc = doc! {
         "$set": {
             "mail": updated_user.mail.clone(),
@@ -154,23 +159,26 @@ async fn update_user_handler(
         }
     };
 
-    if let Some(admin) = &updated_user.admin  {
-        if claims.role =="admin"{
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("admin", admin.clone());
+    if let Some(admin) = &updated_user.admin {
+        if claims.role == "admin" {
+            update_doc
+                .get_mut("$set")
+                .unwrap()
+                .as_document_mut()
+                .unwrap()
+                .insert("admin", admin.clone());
         }
     } else {
         update_doc.insert("$unset", doc! {"admin": ""});
     }
+
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
     {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Usuario actualizado"),
+        Ok(result) if result.matched_count == 1 => {
+            HttpResponse::Ok().body("Usuario actualizado")
+        }
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
@@ -217,26 +225,23 @@ async fn delete_user_handler(
     path: web::Path<String>,
     req: HttpRequest,
 ) -> impl Responder {
-    let client = db.client();
-    let auth_header = req
-        .headers()
-        .get("Authorization")
-        .and_then(|h| h.to_str().ok());
-    let token = auth_header
-        .map(|s| s.trim_start_matches("Bearer ").trim())
-        .unwrap_or("");
-    let claims = match decode_token(token) {
-        Ok(claims) => claims,
-        Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
+    // Recupera las claims insertadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
+
     let user_id = path.into_inner();
     if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_id)) {
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
     }
+    
+    let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+
     session.start_transaction().await.ok();
     let response = delete_user(&db, user_id).await;
 
@@ -247,7 +252,6 @@ async fn delete_user_handler(
     }
     response
 }
-
 pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_handler)
         .service(get_user_handler)
