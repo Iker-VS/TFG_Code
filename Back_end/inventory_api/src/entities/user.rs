@@ -8,6 +8,7 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
+use serde_json;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -61,28 +62,40 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     }
 }
 
-#[post("/users/login/{mail}/{password}")]
+
+#[post("/users/login")]
 async fn login_handler(
     db: web::Data<Database>,
-    path: web::Path<(String, String)>,
+    body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    let (mail, password) = path.into_inner();
+    // Extraer "mail" y "password" del body
+    let mail = match body.get("mail").and_then(|v| v.as_str()) {
+        Some(m) => m,
+        None => return HttpResponse::BadRequest().body("Falta el campo 'mail'"),
+    };
+    let password = match body.get("password").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return HttpResponse::BadRequest().body("Falta el campo 'password'"),
+    };
+
     let collection = db.collection::<User>("users");
     match collection
-        .find_one(doc! {"$and":[{"mail":&mail},{"passwordHash":&password}]})
+        .find_one(doc! {"$and": [{"mail": mail}, {"passwordHash": password}]})
         .await
     {
         Ok(Some(user)) => {
-            return HttpResponse::Ok().body(auth::generate_token(
-                user.id.unwrap().to_hex(),
-                user.admin
-                    .map_or("user", |b| if b { "admin" } else { "user" })
-                    .to_string(),
-            ))
+            let token = auth::generate_token(
+                user.id.clone().unwrap().to_hex(),
+                user.admin.map_or("user".to_string(), |b| if b { "admin".to_string() } else { "user".to_string() }),
+            );
+            HttpResponse::Ok().json(serde_json::json!({
+                "token": token,
+                "user": user
+            }))
         }
-        Ok(None) => return HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => return HttpResponse::NotFound().body("Usuario o contraseña erronea"),
-    };
+        Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
+        Err(_) => HttpResponse::NotFound().body("Usuario o contraseña erronea"),
+    }
 }
 
 #[post("/users/register")]
@@ -104,6 +117,7 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
     }
 }
+
 
 #[put("/users/{id}")]
 async fn update_user_handler(

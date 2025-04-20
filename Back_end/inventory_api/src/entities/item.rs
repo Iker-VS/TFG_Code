@@ -84,6 +84,16 @@ async fn get_item_handler(db: web::Data<Database>, path: web::Path<String>) -> i
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+// #[get("/items/tag/{tag}/{group_id}")]
+// async fn get_items_with_tag_in_group(db: web::Data<Database>, path: web::Path<String,String>) -> impl Responder {
+//     let items_collection =db.collection::<Item>("items");
+//     let tag = path.into_inner();
+//     let items_cursor =match items_collection.find(doc! {tag: $all{tag}}) {
+//         Ok(items_cursor)=>items_cursor,
+//         Err(_) =>return HttpResponse::BadRequest().body(""),
+//     };
+// return HttpResponse::Ok().body("body");
+// }
 
 #[get("/items/zone/{id}")]
 async fn get_items_from_zone_handler(
@@ -135,24 +145,50 @@ async fn update_item_handler(
         }
     };
     if let Some(description) = &updated_item.description {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("description", description.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("description", description.clone());
     } else {
         update_doc.insert("$unset", doc! {"description": ""});
     }
-    
+
     if let Some(picture_url) = &updated_item.picture_url {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("pictureUrl", picture_url.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("pictureUrl", picture_url.clone());
     } else {
         update_doc.insert("$unset", doc! {"pictureUrl": ""});
     }
     if let Some(values) = &updated_item.values {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("values", values.iter().map(|v| bson::to_bson(v).ok()).collect::<Option<Vec<_>>>());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert(
+                "values",
+                values
+                    .iter()
+                    .map(|v| bson::to_bson(v).ok())
+                    .collect::<Option<Vec<_>>>(),
+            );
     } else {
         update_doc.insert("$unset", doc! {"values": ""});
     }
-    
+
     if let Some(tags) = &updated_item.tags {
-        update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
+        update_doc
+            .get_mut("$set")
+            .unwrap()
+            .as_document_mut()
+            .unwrap()
+            .insert("tags", tags.clone());
     } else {
         update_doc.insert("$unset", doc! {"tags": ""});
     }

@@ -88,6 +88,16 @@ async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> 
         Err(e) => HttpResponse::BadRequest().body(e.to_string()),
     }
 }
+#[get("/groups/code/{code}")]
+async fn get_group_by_code_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let collection = db.collection::<Group>("groups");
+    let group_code = path.into_inner();
+    match collection.find_one(doc! {"groupCode": group_code}).await {
+        Ok(Some(group)) => HttpResponse::Ok().json(group),
+        Ok(None) => HttpResponse::NotFound().body("Grupo no encontrado"),
+        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+    }
+}
 
 #[post("/groups")]
 async fn create_group_handler(
@@ -130,11 +140,14 @@ async fn update_group(
             "$set": {
                 "name": updated_group.name.clone(),
                 "userCount":updated_group.user_count.clone(),
-                "groupCode":updated_group.group_code.clone(),
             }
         };
 
         if let Some(user_max) = &updated_group.user_max {
+            if user_max < &updated_group.user_count {
+                return HttpResponse::BadRequest()
+                    .body("Mayor numero de usuarios de los permitidos");
+            }
             update_doc
                 .get_mut("$set")
                 .unwrap()
@@ -160,7 +173,7 @@ async fn update_group(
             .update_one(doc! {"_id": obj_id}, update_doc)
             .await
         {
-            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
+            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().json(obj_id),
             Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
             Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
         }
@@ -185,17 +198,25 @@ async fn update_group_handler(
         Ok(claims) => claims,
         Err(e) => return HttpResponse::Unauthorized().body(e.to_string()),
     };
-    let gorup_id = path.into_inner();
+    let group_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(group_id) => group_id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
     let user_group_collection = db.collection::<UserGroup>("userGroup");
-    let user_group = match user_group_collection.find_one(doc! {"groupId": &gorup_id}).await {
+    let user_group = match user_group_collection
+        .find_one(doc! {"groupId": &group_id})
+        .await
+    {
         Ok(Some(user_group)) => user_group,
-        Ok(None)=>return HttpResponse::NotFound().body("el Usuario no pertenece a este grupo"),
+        Ok(None) => return HttpResponse::NotFound().body("el Usuario no pertenece a este grupo"),
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
-    
 
-    
-    if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_group.user_id.to_string() && gorup_id == user_group.group_id.to_string())) {
+    if !(claims.role == "admin"
+        || (claims.role == "user"
+            && claims.sub == user_group.user_id.to_string()
+            && group_id == user_group.group_id))
+    {
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
     }
 
@@ -205,7 +226,7 @@ async fn update_group_handler(
         Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
     session.start_transaction().await.ok();
-    let response = update_group(&db, gorup_id, updated_group).await;
+    let response = update_group(&db, group_id.to_string(), updated_group).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
@@ -293,6 +314,7 @@ pub async fn delete_group_handler(
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_group_handler)
         .service(get_groups_handler)
+        .service(get_group_by_code_handler)
         .service(create_group_handler)
         .service(update_group_handler)
         .service(delete_group_handler);

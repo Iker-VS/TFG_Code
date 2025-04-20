@@ -57,6 +57,28 @@ async fn get_user_group_handler(
     }
 }
 
+#[get("/user-group/id/{userId}/{groupId}")]
+async fn get_user_group_id_handler(
+    db: web::Data<Database>,
+    path: web::Path<(String, String)>,
+) -> impl Responder {
+    let (user_id_str, group_id_str) = path.into_inner();
+    let user_id = match ObjectId::parse_str(&user_id_str) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+    };
+    let group_id = match ObjectId::parse_str(&group_id_str) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de grupo inválido"),
+    };
+    let collection = db.collection::<UserGroup>("userGroup");
+    match collection.find_one(doc! {"userId": user_id, "groupId": group_id}).await {
+        Ok(Some(user_group)) => HttpResponse::Ok().json(user_group.id.unwrap()),
+        Ok(None) => HttpResponse::NotFound().body("No se encontró registro para el user-group"),
+        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+    }
+}
+
 #[get("/user-group/group/{id}")]
 async fn get_users_from_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
@@ -210,6 +232,7 @@ pub async fn delete_user_group(
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_user_group_handler)
         .service(get_users_groups_handler)
+        .service(get_user_group_id_handler)
         .service(get_groups_from_user_handler)
         .service(get_users_from_group_handler)
         .service(create_user_group_handler)
