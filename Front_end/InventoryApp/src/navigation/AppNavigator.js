@@ -7,6 +7,7 @@ import { ThemeContext } from "../context/ThemeContext"
 import CustomDrawer from "../components/CustomDrawer"
 import MainScreen from "../screens/MainScreen"
 import GroupsScreen from "../screens/GroupsScreen"
+import GroupDetailScreen from "../screens/GroupDetailScreen"
 import UserScreen from "../screens/UserScreen"
 import LogsScreen from "../screens/LogsScreen"
 import UsersScreen from "../screens/UsersScreen"
@@ -16,6 +17,8 @@ const Drawer = createDrawerNavigator()
 const AppNavigator = () => {
   const { userData } = useContext(AuthContext)
   const { theme } = useContext(ThemeContext)
+
+  // Verificar si el usuario es administrador usando tanto admin como role
   const isAdmin = userData?.admin === true || userData?.role === "admin"
 
   return (
@@ -31,16 +34,21 @@ const AppNavigator = () => {
         drawerActiveTintColor: "#fff",
         drawerInactiveTintColor: theme.text,
         drawerLabelStyle: {
-          marginLeft: 0,
+          marginLeft: -25,
           fontSize: 15,
         },
-        drawerStyle:{
-          width: 240,
-        }
       }}
     >
       <Drawer.Screen name="Home" component={MainScreen} options={{ title: "Inicio" }} />
       <Drawer.Screen name="Groups" component={GroupsScreen} options={{ title: "Mis Grupos" }} />
+      <Drawer.Screen
+        name="GroupDetail"
+        component={GroupDetailScreen}
+        options={{
+          title: "Detalle de Grupo",
+          drawerItemStyle: { display: "none" }, // Ocultar en el drawer
+        }}
+      />
       <Drawer.Screen name="User" component={UserScreen} options={{ title: "Mi Usuario" }} />
       {isAdmin && (
         <>

@@ -23,12 +23,17 @@ import {
   fetchUserGroups,
   checkGroupByCode,
   joinGroup,
-  updateGroup,
   leaveGroup,
   createGroup,
+  fetchGroupById,
+  getUserGroupRelationship,
+  deleteGroup,
+  apiRequest,
   checkUserInGroup,
 } from "../services/api"
 import { normalizeId, isValidId, retryOperation } from "../utils/idUtils"
+// Importar BreadcrumbNavigation
+import BreadcrumbNavigation from "../components/BreadcrumbNavigation"
 
 const GroupsScreen = ({ navigation }) => {
   const { theme } = useContext(ThemeContext)
@@ -41,10 +46,11 @@ const GroupsScreen = ({ navigation }) => {
   const [editingGroup, setEditingGroup] = useState(null)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinCode, setJoinCode] = useState("")
+  // Dentro del componente GroupsScreen, añadir estado para la ruta de navegación
+  const [navigationPath, setNavigationPath] = useState([{ id: "groups", name: "Mis Grupos", type: "root" }])
 
   // Campos para crear/editar grupo
   const [groupName, setGroupName] = useState("")
-  const [groupDescription, setGroupDescription] = useState("")
   const [hasUserMax, setHasUserMax] = useState(false)
   const [userMax, setUserMax] = useState("10")
 
@@ -95,7 +101,6 @@ const GroupsScreen = ({ navigation }) => {
   // Preparar el formulario para crear un grupo
   const prepareCreateGroup = () => {
     setGroupName("")
-    setGroupDescription("")
     setHasUserMax(false)
     setUserMax("10")
     setEditingGroup(null)
@@ -105,14 +110,13 @@ const GroupsScreen = ({ navigation }) => {
   // Preparar el formulario para editar un grupo
   const prepareEditGroup = (group) => {
     setGroupName(group.name || "")
-    setGroupDescription(group.description || "")
     setHasUserMax(group.userMax !== null && group.userMax !== undefined)
     setUserMax(group.userMax ? group.userMax.toString() : "10")
     setEditingGroup(group)
     setShowForm(true)
   }
 
-  // Crear un nuevo grupo
+  // Crear o actualizar un grupo
   const handleCreateGroup = async () => {
     if (!groupName.trim()) {
       Alert.alert("Error", "Por favor ingrese un nombre para el grupo")
@@ -123,20 +127,55 @@ const GroupsScreen = ({ navigation }) => {
     setError(null)
 
     try {
+      // Si estamos editando un grupo existente
+      if (editingGroup && editingGroup._id) {
+        const groupId = normalizeId(editingGroup._id)
+
+        if (!isValidId(groupId)) {
+          throw new Error("Invalid group ID format")
+        }
+
+        // Verificar si el usuario pertenece al grupo antes de actualizarlo
+        const userId = normalizeId(userData._id)
+        const isInGroup = await checkUserInGroup(groupId, userId)
+
+        if (!isInGroup) {
+          throw new Error("User does not belong to this group")
+        }
+
+        // Preparar los datos del grupo para actualizar
+        const groupData = {
+          _id: groupId,
+          name: groupName,
+          description: "", // Mantener vacío pero incluirlo
+          userCount: editingGroup.userCount || 1,
+          userMax: hasUserMax ? Number.parseInt(userMax) : null,
+          groupCode: editingGroup.groupCode || generateRandomCode(8),
+          tags: editingGroup.tags || [],
+        }
+
+        // Actualizar el grupo directamente con apiRequest
+        await apiRequest(`/private/groups/${groupId}`, "PUT", groupData)
+
+        setShowForm(false)
+        await loadGroups()
+        Alert.alert("Éxito", "Grupo actualizado correctamente")
+        return
+      }
+
+      // Si estamos creando un nuevo grupo
       const groupData = {
         name: groupName,
-        description: groupDescription,
         userMax: hasUserMax ? Number.parseInt(userMax) : null,
       }
 
-      // 1. Create the group
-      const newGroup = await createGroup(groupData)
-      console.log("Group created successfully:", newGroup)
+      // 1. Create the group - API returns only the ID
+      const newGroupResponse = await createGroup(groupData)
 
       // Verificar y extraer el ID del grupo correctamente
-      const groupId = normalizeId(newGroup._id)
+      const groupId = normalizeId(newGroupResponse._id)
 
-      if (!isValidId(normalizeId(newGroup._id))) {
+      if (!isValidId(groupId)) {
         throw new Error("Failed to create group: No valid group ID returned")
       }
 
@@ -148,37 +187,75 @@ const GroupsScreen = ({ navigation }) => {
       }
 
       // 3. Añadir el usuario al grupo con reintentos
-      await retryOperation(
+      const joinResponse = await retryOperation(
         async () => {
-          await joinGroup(groupId, userId)
-          console.log("User added to group successfully")
+          // Join group returns the relationship ID
+          const response = await joinGroup(groupId, userId)
 
           // Verificar que el usuario se haya añadido correctamente
-          const isUserInGroup = await checkUserInGroup(groupId, userId)
-          if (!isUserInGroup) {
-            throw new Error("Failed to verify user-group relationship")
+          // Obtener detalles de la relación usuario-grupo
+          const relationshipId = normalizeId(response._id)
+
+          if (!isValidId(relationshipId)) {
+            throw new Error("Invalid relationship ID format")
+          }
+
+          // Intentar obtener la relación para verificar que se creó correctamente
+          try {
+            const relationship = await getUserGroupRelationship(relationshipId)
+            if (!relationship) {
+              throw new Error("Failed to verify user-group relationship")
+            }
+            return relationship
+          } catch (err) {
+            console.error("Error verifying relationship:", err)
+            // Si no podemos verificar la relación pero tenemos un ID válido, asumimos que está bien
+            // para evitar múltiples relaciones
+            if (isValidId(relationshipId)) {
+              return { _id: relationshipId, verified: false }
+            }
+            throw err
           }
         },
         3,
         500,
       )
 
-      // 4. Actualizar el contador de usuarios del grupo
+      // 4. Obtener los detalles completos del grupo
+      let groupDetails
+      try {
+        groupDetails = await fetchGroupById(groupId)
+      } catch (err) {
+        console.error("Error fetching group details:", err)
+        // Si no podemos obtener los detalles, crear un objeto básico
+        groupDetails = {
+          _id: groupId,
+          name: groupName,
+          userMax: hasUserMax ? Number.parseInt(userMax) : null,
+          userCount: 0,
+          groupCode: "Unknown",
+        }
+      }
+
+      // 5. Actualizar el contador de usuarios del grupo
       const updatedGroup = {
-        ...newGroup,
-        _id: groupId, // Asegurar que el ID está normalizado
+        ...groupDetails,
         userCount: 1, // Set to 1 since this is the first user
       }
 
-      await updateGroup(groupId, updatedGroup)
-      console.log("Group user count updated successfully")
+      try {
+        await apiRequest(`/private/groups/${groupId}`, "PUT", updatedGroup)
+      } catch (err) {
+        console.error("Error updating group user count:", err)
+        // Continuar a pesar del error
+      }
 
       setShowForm(false)
 
-      // 5. Reload groups to show the new group
+      // 6. Reload groups to show the new group
       await loadGroups()
 
-      // 6. Navigate to the Home screen with the new group
+      // 7. Navigate to the Home screen with the new group
       navigation.navigate("Home", { group: updatedGroup })
 
       Alert.alert("Success", "Group created and joined successfully")
@@ -189,6 +266,16 @@ const GroupsScreen = ({ navigation }) => {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Función para generar un código aleatorio de n caracteres
+  const generateRandomCode = (length) => {
+    const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    let result = ""
+    for (let i = 0; i < length; i++) {
+      result += characters.charAt(Math.floor(Math.random() * characters.length))
+    }
+    return result
   }
 
   // Unirse a un grupo con código
@@ -204,6 +291,7 @@ const GroupsScreen = ({ navigation }) => {
     try {
       // 1. Verificar si el grupo existe
       const group = await checkGroupByCode(joinCode)
+      console.log("Group found with code:", joinCode, "Group:", group)
 
       if (!group) {
         Alert.alert("Error", "El código ingresado no corresponde a ningún grupo")
@@ -220,6 +308,7 @@ const GroupsScreen = ({ navigation }) => {
 
       // 3. Normalizar el ID del usuario
       const userId = normalizeId(userData._id)
+      console.log("Normalized user ID:", userId, "Type:", typeof userId)
 
       if (!isValidId(userId)) {
         throw new Error("Invalid user ID format")
@@ -227,20 +316,45 @@ const GroupsScreen = ({ navigation }) => {
 
       // 4. Normalizar el ID del grupo
       const groupId = normalizeId(group._id)
+      console.log("Normalized group ID:", groupId, "Type:", typeof groupId)
 
       if (!isValidId(groupId)) {
         throw new Error("Invalid group ID format")
       }
 
       // 5. Crear relación usuario-grupo con reintentos
-      await retryOperation(
+      const joinResponse = await retryOperation(
         async () => {
-          await joinGroup(groupId, userId)
+          // Join group returns the relationship ID
+          const response = await joinGroup(groupId, userId)
+          console.log("User joined group successfully, relationship response:", response)
 
           // Verificar que el usuario se haya añadido correctamente
-          const isUserInGroup = await checkUserInGroup(groupId, userId)
-          if (!isUserInGroup) {
-            throw new Error("Failed to verify user-group relationship")
+          // Obtener detalles de la relación usuario-grupo
+          const relationshipId = normalizeId(response._id)
+          console.log("Extracted relationship ID:", relationshipId, "Type:", typeof relationshipId)
+
+          if (!isValidId(relationshipId)) {
+            throw new Error("Invalid relationship ID format")
+          }
+
+          // Intentar obtener la relación para verificar que se creó correctamente
+          try {
+            const relationship = await getUserGroupRelationship(relationshipId)
+            console.log("Relationship details:", relationship)
+            if (!relationship) {
+              throw new Error("Failed to verify user-group relationship")
+            }
+            return relationship
+          } catch (err) {
+            console.error("Error verifying relationship:", err)
+            // Si no podemos verificar la relación pero tenemos un ID válido, asumimos que está bien
+            // para evitar múltiples relaciones
+            if (isValidId(relationshipId)) {
+              console.log("Relationship ID is valid, continuing despite verification error")
+              return { _id: relationshipId, verified: false }
+            }
+            throw err
           }
         },
         3,
@@ -253,11 +367,17 @@ const GroupsScreen = ({ navigation }) => {
       // 7. Actualizar el contador de usuarios del grupo
       const updatedGroup = {
         ...group,
-        _id: groupId, // Asegurar que el ID está normalizado
         userCount: group.userCount + 1,
       }
 
-      await updateGroup(groupId, updatedGroup)
+      console.log("Updating group with new user count:", updatedGroup)
+      try {
+        await apiRequest(`/private/groups/${groupId}`, "PUT", updatedGroup)
+        console.log("Group user count updated successfully")
+      } catch (err) {
+        console.error("Error updating group user count:", err)
+        // Continuar a pesar del error
+      }
 
       setShowJoinModal(false)
       setJoinCode("")
@@ -306,20 +426,50 @@ const GroupsScreen = ({ navigation }) => {
             // 3. Eliminar relación usuario-grupo
             await leaveGroup(groupId, userId)
 
-            // 4. Actualizar el contador de usuarios del grupo
-            const updatedGroup = {
-              ...group,
-              _id: groupId, // Asegurar que el ID está normalizado
-              userCount: Math.max(0, group.userCount - 1),
-            }
+            // 4. Recargar grupos
+            await loadGroups()
 
-            await updateGroup(groupId, updatedGroup)
-
-            loadGroups()
+            Alert.alert("Éxito", "Has salido del grupo correctamente")
           } catch (err) {
             console.error("Error leaving group:", err)
             setError("Error al salir del grupo. Intente nuevamente.")
             Alert.alert("Error", "No se pudo salir del grupo: " + (err.message || "Error desconocido"))
+          } finally {
+            setIsLoading(false)
+          }
+        },
+      },
+    ])
+  }
+
+  // Eliminar un grupo (solo para administradores)
+  const handleDeleteGroup = (group) => {
+    Alert.alert("Confirmar eliminación", `¿Está seguro que desea eliminar el grupo ${group.name}?`, [
+      { text: "No", style: "cancel" },
+      {
+        text: "Sí",
+        style: "destructive",
+        onPress: async () => {
+          setIsLoading(true)
+          setError(null)
+
+          try {
+            // Normalizar el ID del grupo
+            const groupId = normalizeId(group._id)
+
+            if (!isValidId(groupId)) {
+              throw new Error("Invalid group ID format")
+            }
+
+            // Eliminar el grupo
+            await deleteGroup(groupId)
+
+            loadGroups()
+            Alert.alert("Éxito", "Grupo eliminado correctamente")
+          } catch (err) {
+            console.error("Error deleting group:", err)
+            setError("Error al eliminar el grupo. Intente nuevamente.")
+            Alert.alert("Error", "No se pudo eliminar el grupo: " + (err.message || "Error desconocido"))
           } finally {
             setIsLoading(false)
           }
@@ -350,8 +500,17 @@ const GroupsScreen = ({ navigation }) => {
     </View>
   )
 
+  // Modificar el return para añadir BreadcrumbNavigation
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Navegación de ruta */}
+      <BreadcrumbNavigation
+        path={navigationPath}
+        onNavigate={(index) => {
+          // No es necesario hacer nada aquí ya que solo tenemos un nivel
+        }}
+      />
+
       {/* Lista de grupos */}
       {isLoading ? (
         <View style={styles.centerContainer}>
@@ -365,11 +524,17 @@ const GroupsScreen = ({ navigation }) => {
           keyExtractor={(item) => getGroupId(item)}
           contentContainerStyle={styles.listContainer}
           renderItem={({ item }) => (
-            <SwipeablePanel onEdit={() => prepareEditGroup(item)} onDelete={() => handleLeaveGroup(item)}>
+            <SwipeablePanel
+              onEdit={() => prepareEditGroup(item)}
+              onDelete={() => handleLeaveGroup(item)}
+              leftActionLabel="Edit"
+              rightActionLabel="Leave"
+              immediateAction={true}
+            >
               <EntityPanel
                 entity={{
                   name: item.name || "Sin nombre",
-                  description: item.description || "Sin descripción",
+                  groupCode: item.groupCode || "No disponible",
                   userCount: item.userCount || 0,
                   userMax: item.userMax,
                 }}
@@ -428,27 +593,6 @@ const GroupsScreen = ({ navigation }) => {
                 placeholderTextColor={theme.text + "80"}
                 value={groupName}
                 onChangeText={setGroupName}
-              />
-            </View>
-
-            <View style={styles.formField}>
-              <Text style={[styles.formLabel, { color: theme.text }]}>Descripción</Text>
-              <TextInput
-                style={[
-                  styles.formTextArea,
-                  {
-                    backgroundColor: theme.card,
-                    color: theme.text,
-                    borderColor: theme.border,
-                  },
-                ]}
-                placeholder="Descripción del grupo (opcional)"
-                placeholderTextColor={theme.text + "80"}
-                value={groupDescription}
-                onChangeText={setGroupDescription}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
               />
             </View>
 

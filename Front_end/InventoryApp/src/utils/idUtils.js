@@ -10,11 +10,20 @@ export const normalizeId = (id) => {
 
   // Si es un objeto con formato MongoDB {$oid: "..."}
   if (typeof id === "object") {
-    if (id.$oid) return id.$oid
+    // Caso especial: respuesta directa de MongoDB con $oid
+    if (id.$oid) {
+      return id.$oid
+    }
+
+    // Si el objeto tiene _id que es un objeto con $oid
+    if (id._id && typeof id._id === "object" && id._id.$oid) {
+      return id._id.$oid
+    }
 
     // Si es otro tipo de objeto, intentar convertirlo a string
     try {
-      return String(id)
+      const strValue = String(id)
+      return strValue
     } catch (e) {
       console.error("Error normalizing ID:", e)
       return null

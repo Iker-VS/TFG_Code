@@ -31,7 +31,20 @@ const CustomDrawer = (props) => {
           </View>
         </View>
         <View style={{ flex: 1, backgroundColor: theme.background, paddingTop: 10 }}>
-          <DrawerItemList {...props} />
+          {/* Modificar el DrawerItemList para asegurar que el texto se ajuste correctamente */}
+          <DrawerItemList
+            {...props}
+            labelStyle={{
+              fontSize: 15,
+              fontWeight: "500",
+              marginLeft: -20,
+              width: "100%",
+            }}
+            itemStyle={{
+              marginVertical: 5,
+              marginHorizontal: 5,
+            }}
+          />
         </View>
       </DrawerContentScrollView>
 
@@ -81,11 +94,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
+    textAlign: "center",
   },
   userEmail: {
     color: "#fff",
     fontSize: 14,
     marginTop: 5,
+    textAlign: "center",
   },
   bottomSection: {
     padding: 20,

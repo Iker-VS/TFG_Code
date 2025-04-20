@@ -11,11 +11,11 @@ const EntityPanel = ({ entity, onPress, type }) => {
   // Ensure entity has all required properties with defaults
   const safeEntity = {
     name: entity?.name || "Sin nombre",
-    description: entity?.description || "Sin descripción",
     address: entity?.address || "",
     status: entity?.status || "",
     userCount: entity?.userCount || 0,
     userMax: entity?.userMax || null,
+    groupCode: entity?.groupCode || "No disponible",
     ...entity,
   }
 
@@ -25,10 +25,10 @@ const EntityPanel = ({ entity, onPress, type }) => {
       case "group":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
-            <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
-              {safeEntity.description || "No description"}
+            <Text style={[styles.entityName, { color: theme.text }]} numberOfLines={1} ellipsizeMode="tail">
+              {safeEntity.name}
             </Text>
+            <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>Código: {safeEntity.groupCode}</Text>
             {safeEntity.userCount !== undefined && (
               <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
                 Members: {safeEntity.userCount}
@@ -40,7 +40,9 @@ const EntityPanel = ({ entity, onPress, type }) => {
       case "property":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]} numberOfLines={1} ellipsizeMode="tail">
+              {safeEntity.name}
+            </Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
               {safeEntity.address || "No address"}
             </Text>
@@ -49,7 +51,9 @@ const EntityPanel = ({ entity, onPress, type }) => {
       case "zone":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]} numberOfLines={1} ellipsizeMode="tail">
+              {safeEntity.name}
+            </Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
               {safeEntity.description || "No description"}
             </Text>
@@ -58,7 +62,9 @@ const EntityPanel = ({ entity, onPress, type }) => {
       case "item":
         return (
           <>
-            <Text style={[styles.entityName, { color: theme.text }]}>{safeEntity.name}</Text>
+            <Text style={[styles.entityName, { color: theme.text }]} numberOfLines={1} ellipsizeMode="tail">
+              {safeEntity.name}
+            </Text>
             <Text style={[styles.entityDetail, { color: theme.text + "CC" }]}>
               {safeEntity.description || "No description"}
             </Text>
