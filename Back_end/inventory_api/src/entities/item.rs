@@ -62,11 +62,11 @@ async fn get_items_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<Item>("items");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let items: Vec<Item> = match cursor.try_collect().await {
         Ok(items) => items,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     HttpResponse::Ok().json(items)
 }
@@ -119,12 +119,12 @@ async fn get_items_from_zone_handler(
         }).await
     {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
 
     let items: Vec<Item> = match cursor.try_collect().await {
         Ok(items) => items,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
 
     HttpResponse::Ok().json(items)
@@ -137,7 +137,7 @@ async fn create_item_handler(db: web::Data<Database>, new_item: web::Json<Item>)
     item.id = None;
     match collection.insert_one(item).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -212,7 +212,7 @@ async fn update_item_handler(
     {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Objeto actualizado"),
         Ok(_) => HttpResponse::NotFound().body("Objeto no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -224,7 +224,7 @@ pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
     };
     match collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(_) => HttpResponse::Ok().body("Item Eliminado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -233,7 +233,7 @@ async fn delete_item_handler(db: web::Data<Database>, path: web::Path<String>) -
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = delete_item(&db, path.into_inner()).await;

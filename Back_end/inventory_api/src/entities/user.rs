@@ -3,6 +3,7 @@ use crate::middleware::auth::{self};
 use crate::{entities::user_group::delete_user_group};
 use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
+use regex::Regex;
 use mongodb::{
     bson::{doc, oid::ObjectId},
     Database,
@@ -39,11 +40,11 @@ async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<User>("users");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let users: Vec<User> = match cursor.try_collect().await {
         Ok(users) => users,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     HttpResponse::Ok().json(users)
 }
@@ -58,7 +59,7 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     match collection.find_one(doc! {"_id": obj_id}).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
         Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -99,30 +100,40 @@ async fn login_handler(
 }
 
 #[post("/users/register")]
-async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
+async fn create_user_handler(
+    db: web::Data<Database>,
+    new_user: web::Json<User>
+) -> impl Responder {
     let collection = db.collection::<User>("users");
+    
     if collection
-        .find_one(doc! {"mail":&new_user.mail})
+        .find_one(doc! {"mail": &new_user.mail})
         .await
         .unwrap_or(None)
         .is_some()
     {
         return HttpResponse::BadRequest().body("El correo está en uso");
     }
+    
+    // Valida que el correo cumpla con la expresión regular "^.+@.+$"
+    let email_regex = Regex::new(r"^.+@.+$").expect("Failed to create regex");
+    if !email_regex.is_match(&new_user.mail) {
+        return HttpResponse::BadRequest().body("El correo no es válido");
+    }
+    
     let mut user = new_user.into_inner();
     user.id = None;
-    user.admin=None;
+    user.admin = None;
     match collection.insert_one(&user).await {
         Ok(result) => {
-            user.id= result.inserted_id.as_object_id();
-            let token = auth::generate_token(result.inserted_id.to_string(),"user".to_string());
+            user.id = result.inserted_id.as_object_id();
+            let token = auth::generate_token(result.inserted_id.to_string(), "user".to_string());
             HttpResponse::Ok().json(serde_json::json!({
                 "token": token,
                 "user": user
             }))
         }
-     
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, vuelva a intentarlo"),
     }
 }
 
@@ -180,7 +191,7 @@ async fn update_user_handler(
             HttpResponse::Ok().body("Usuario actualizado")
         }
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -194,11 +205,11 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
 
     let user_group_cursor = match user_group_collection.find(doc! {"userId":obj_id}).await {
         Ok(user_group) => user_group,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(user_group) => user_group,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     for user_group in users_groups {
         let id = match user_group.id {
@@ -215,7 +226,7 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
     match item_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("Usuario eliminado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -239,7 +250,7 @@ async fn delete_user_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
 
     session.start_transaction().await.ok();

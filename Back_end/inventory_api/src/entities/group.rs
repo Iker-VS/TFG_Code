@@ -66,11 +66,11 @@ async fn get_groups_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<Group>("groups");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let groups: Vec<Group> = match cursor.try_collect().await {
         Ok(groups) => groups,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     HttpResponse::Ok().json(groups)
 }
@@ -119,7 +119,7 @@ async fn create_group_handler(
     group.user_count = 0;
     match collection.insert_one(group).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -175,7 +175,7 @@ async fn update_group(
         {
             Ok(result) if result.matched_count == 1 => HttpResponse::Ok().json(obj_id),
             Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
-            Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+            Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
         }
     }
 }
@@ -204,7 +204,7 @@ async fn update_group_handler(
     {
         Ok(Some(user_group)) => user_group,
         Ok(None) => return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo"),
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
 
     if !(claims.role == "admin"
@@ -218,7 +218,7 @@ async fn update_group_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = update_group(&db, group_id.to_string(), updated_group).await;
@@ -243,11 +243,11 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
 
     let property_cursor = match property_collection.find(doc! {"groupId":obj_id}).await {
         Ok(zones) => zones,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let properties: Vec<Property> = match property_cursor.try_collect().await {
         Ok(properties) => properties,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     for property in properties {
         let id = match property.id {
@@ -261,11 +261,11 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
     }
     let user_group_cursor = match user_group_collection.find(doc! {"groupId":obj_id}).await {
         Ok(user_group) => user_group,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(user_group) => user_group,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     for user_group in users_groups {
         let id = match user_group.id {
@@ -280,7 +280,7 @@ pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
 
     match group_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(_) => HttpResponse::Ok().body("Grupo Eliminado"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -292,7 +292,7 @@ pub async fn delete_group_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = delete_group(&db, path.into_inner()).await;

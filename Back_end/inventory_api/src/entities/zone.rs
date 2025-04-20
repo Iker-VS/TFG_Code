@@ -42,11 +42,11 @@ async fn get_zones_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<Zone>("zones");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let zones: Vec<Zone> = match cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     HttpResponse::Ok().json(zones)
 }
@@ -100,11 +100,11 @@ async fn get_zone_from_parent_handler(
         .await
     {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     HttpResponse::Ok().json(zones)
 }
@@ -116,7 +116,7 @@ async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)
     zone.id = None;
     match collection.insert_one(zone).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -163,7 +163,7 @@ async fn update_zones_handler(
     {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
         Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -176,11 +176,11 @@ pub async fn delete_zone(db: &Database, zone_id: String) -> HttpResponse {
     };
     let item_cursor = match item_collection.find(doc! {"zoneId":obj_id}).await {
         Ok(items) => items,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     let items: Vec<Item> = match item_cursor.try_collect().await {
         Ok(items) => items,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     for item in items {
         let id = match item.id {
@@ -194,7 +194,7 @@ pub async fn delete_zone(db: &Database, zone_id: String) -> HttpResponse {
     }
     match zone_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(_) => HttpResponse::Ok().body("Zona eliminada"),
-        Err(e) => HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -203,7 +203,7 @@ async fn delete_zone_handler(db: web::Data<Database>, path: web::Path<String>) -
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = delete_zone(&db, path.into_inner()).await;
