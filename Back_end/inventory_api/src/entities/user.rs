@@ -36,7 +36,21 @@ impl User {
 }
 
 #[get("/users")]
-async fn get_users_handler(db: web::Data<Database>) -> impl Responder {
+async fn get_users_handler(
+    db: web::Data<Database>,
+    req: HttpRequest,
+) -> impl Responder {
+    // Recupera las claims inyectadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    // Solo el admin puede obtener todos los usuarios
+    if claims.role != "admin" {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
+    }
+
     let collection = db.collection::<User>("users");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,

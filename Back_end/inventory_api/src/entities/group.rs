@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder, HttpMessage};
+use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -62,16 +62,33 @@ impl Group {
 }
 
 #[get("/groups")]
-async fn get_groups_handler(db: web::Data<Database>) -> impl Responder {
+async fn get_groups_handler(db: web::Data<Database>, req: HttpRequest) -> impl Responder {
+    // Recupera las claims ya inyectadas por el middleware
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    // Solo un admin puede obtener todos los grupos
+    if claims.role != "admin" {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    }
+
     let collection = db.collection::<Group>("groups");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
+
     let groups: Vec<Group> = match cursor.try_collect().await {
         Ok(groups) => groups,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
+
     HttpResponse::Ok().json(groups)
 }
 
@@ -89,7 +106,10 @@ async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> 
     }
 }
 #[get("/groups/code/{code}")]
-async fn get_group_by_code_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_group_by_code_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let collection = db.collection::<Group>("groups");
     let group_code = path.into_inner();
     match collection.find_one(doc! {"groupCode": group_code}).await {
@@ -188,7 +208,11 @@ async fn update_group_handler(
     req: HttpRequest,
 ) -> impl Responder {
     // Clona las claims para evitar problemas de ciclo de vida
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
@@ -227,7 +251,7 @@ async fn update_group_handler(
         session.commit_transaction().await.ok();
     } else {
         session.abort_transaction().await.ok();
-    } 
+    }
 
     response
 }

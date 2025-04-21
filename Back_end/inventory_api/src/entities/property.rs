@@ -38,16 +38,32 @@ impl Property {
 }
 
 #[get("/properties")]
-async fn get_properties_handler(db: web::Data<Database>) -> impl Responder {
+async fn get_properties_handler(
+    db: web::Data<Database>,
+    req: HttpRequest,
+) -> impl Responder {
+    // Recupera las claims inyectadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    // Solo el admin puede obtener todas las propiedades
+    if claims.role != "admin" {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
+    }
+
     let collection = db.collection::<Property>("properties");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+
     let properties: Vec<Property> = match cursor.try_collect().await {
         Ok(properties) => properties,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
     };
+
     HttpResponse::Ok().json(properties)
 }
 #[get("/properties/{id}")]
