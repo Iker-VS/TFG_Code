@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -150,19 +150,8 @@ async fn get_groups_from_user_handler(db: web::Data<Database>, path: web::Path<S
 async fn create_user_group_handler(
     db: web::Data<Database>,
     new_user_group: web::Json<UserGroup>,
-    req: HttpRequest,
+    _req: HttpRequest,
 ) -> impl Responder {
-    // Recupera las claims inyectadas por el middleware
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
-    };
-
-    // Solo el admin puede crear relaciones user-group
-    if claims.role != "admin" {
-        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
-    }
-
     let collection = db.collection::<UserGroup>("userGroup");
     let mut user_group = new_user_group.into_inner();
     user_group.id = None;

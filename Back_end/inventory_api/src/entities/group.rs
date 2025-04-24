@@ -193,7 +193,7 @@ async fn update_group(
             .update_one(doc! {"_id": obj_id}, update_doc)
             .await
         {
-            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().json(obj_id),
+            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
             Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
             Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
         }
@@ -208,11 +208,7 @@ async fn update_group_handler(
     req: HttpRequest,
 ) -> impl Responder {
     // Clona las claims para evitar problemas de ciclo de vida
-    let claims = match req
-        .extensions()
-        .get::<crate::middleware::auth::Claims>()
-        .cloned()
-    {
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
@@ -221,24 +217,27 @@ async fn update_group_handler(
         Ok(group_id) => group_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let user_group_collection = db.collection::<UserGroup>("userGroup");
-    let user_group = match user_group_collection
-        .find_one(doc! {"groupId": &group_id})
-        .await
-    {
-        Ok(Some(user_group)) => user_group,
-        Ok(None) => return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo"),
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
-    };
 
-    if !(claims.role == "admin"
-        || (claims.role == "user"
-            && claims.sub == user_group.user_id.to_string()
-            && group_id == user_group.group_id))
-    {
-        return HttpResponse::Unauthorized().body("Acceso no autorizado");
+    // Si el usuario es admin, se permite modificar sin comprobar pertenencia
+    if claims.role != "admin" {
+        // Si es usuario normal, se comprueba que pertenezca al grupo
+        let user_group_collection = db.collection::<UserGroup>("userGroup");
+        let user_group = match user_group_collection
+            .find_one(doc! {"groupId": &group_id})
+            .await
+        {
+            Ok(Some(user_group)) => user_group,
+            Ok(None) => {
+                return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo")
+            }
+            Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        };
+
+        if claims.sub != user_group.user_id.to_string() || group_id != user_group.group_id {
+            return HttpResponse::Unauthorized().body("Acceso no autorizado");
+        }
     }
-
+    
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,

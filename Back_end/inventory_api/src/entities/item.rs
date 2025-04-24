@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{self, doc, oid::ObjectId, DateTime},
@@ -157,7 +157,7 @@ async fn create_item_handler(db: web::Data<Database>, new_item: web::Json<Item>)
     }
 }
 
-#[put("/items/{id}")]
+#[patch("/items/{id}")]
 async fn update_item_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -171,7 +171,6 @@ async fn update_item_handler(
     let mut update_doc = doc! {
         "$set": {
             "name": updated_item.name.clone(),
-            "zoneId": updated_item.zone_id.clone(),
         }
     };
     if let Some(description) = &updated_item.description {

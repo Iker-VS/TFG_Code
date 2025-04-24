@@ -145,36 +145,38 @@ async fn update_zones_handler(
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let mut update_doc = doc! {
-        "$set": {
-            "name": updated_zone.name.clone(),
-            "propertyId": updated_zone.property_id.clone(),
-        }
+
+    // Se crea un documento para $set
+    let mut set_doc = doc! {
+        "name": updated_zone.name.clone(),
+        "propertyId": updated_zone.property_id.clone(),
     };
     if let Some(user_id) = &updated_zone.user_id {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("userId", user_id.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"userId": ""});
+        set_doc.insert("userId", user_id.clone());
     }
     if let Some(parent_zone_id) = &updated_zone.parent_zone_id {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("parentZoneId", parent_zone_id.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"parentZoneId": ""});
+        set_doc.insert("parentZoneId", parent_zone_id.clone());
     }
-    match collection
-        .update_one(doc! {"_id": obj_id}, update_doc)
-        .await
-    {
+
+    // Se crea un documento para $unset solo si es necesario
+    let mut unset_doc = doc! {};
+    if updated_zone.user_id.is_none() {
+        unset_doc.insert("userId", "");
+    }
+    if updated_zone.parent_zone_id.is_none() {
+        unset_doc.insert("parentZoneId", "");
+    }
+
+    // Se arma el update final con ambos documentos si aplica
+    let mut update_doc = doc! {};
+    if !set_doc.is_empty() {
+        update_doc.insert("$set", set_doc);
+    }
+    if !unset_doc.is_empty() {
+        update_doc.insert("$unset", unset_doc);
+    }
+
+    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
         Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),

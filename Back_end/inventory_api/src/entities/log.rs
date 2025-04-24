@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId, DateTime},
@@ -83,12 +83,12 @@ async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>,rep
     }
 }
 
-#[put("/logs/{id}")]
+#[patch("/logs/{id}")]
 async fn update_log_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_log: web::Json<Log>,
-    rep:HttpRequest,
+    rep: HttpRequest,
 ) -> impl Responder {
     if !check_admin(rep).await {
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
@@ -112,7 +112,7 @@ async fn update_log_handler(
     {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("registro actualizado"),
         Ok(_) => HttpResponse::NotFound().body("registro no encontrado"),
-        Err(_) =>HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
