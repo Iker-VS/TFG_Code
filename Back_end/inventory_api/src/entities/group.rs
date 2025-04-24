@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -159,40 +159,26 @@ async fn update_group(
         let mut update_doc = doc! {
             "$set": {
                 "name": updated_group.name.clone(),
-                "userCount":updated_group.user_count.clone(),
+                "userCount": updated_group.user_count.clone(),
             }
         };
 
         if let Some(user_max) = &updated_group.user_max {
             if user_max < &updated_group.user_count {
-                return HttpResponse::BadRequest()
-                    .body("Mayor numero de usuarios de los permitidos");
+                return HttpResponse::BadRequest().body("Mayor numero de usuarios de los permitidos");
             }
-            update_doc
-                .get_mut("$set")
-                .unwrap()
-                .as_document_mut()
-                .unwrap()
-                .insert("userMax", user_max.clone());
+            update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userMax", user_max.clone());
         } else {
             update_doc.insert("$unset", doc! {"user_max": ""});
         }
 
         if let Some(tags) = &updated_group.tags {
-            update_doc
-                .get_mut("$set")
-                .unwrap()
-                .as_document_mut()
-                .unwrap()
-                .insert("tags", tags.clone());
+            update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
         } else {
             update_doc.insert("$unset", doc! {"tags": ""});
         }
 
-        match collection
-            .update_one(doc! {"_id": obj_id}, update_doc)
-            .await
-        {
+        match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
             Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
             Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
             Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
@@ -200,7 +186,7 @@ async fn update_group(
     }
 }
 
-#[put("/groups/{id}")]
+#[patch("/groups/{id}")]
 async fn update_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -213,7 +199,7 @@ async fn update_group_handler(
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
 
-    let group_id = match ObjectId::parse_str(&path.into_inner()) {
+        let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(group_id) => group_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
@@ -223,9 +209,9 @@ async fn update_group_handler(
         // Si es usuario normal, se comprueba que pertenezca al grupo
         let user_group_collection = db.collection::<UserGroup>("userGroup");
         let user_group = match user_group_collection
-            .find_one(doc! {"groupId": &group_id})
-            .await
-        {
+.find_one(doc! {"groupId": &group_id})
+.await
+{
             Ok(Some(user_group)) => user_group,
             Ok(None) => {
                 return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo")
@@ -237,13 +223,14 @@ async fn update_group_handler(
             return HttpResponse::Unauthorized().body("Acceso no autorizado");
         }
     }
-    
-    let client = db.client();
+        
+        let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
+    
     let response = update_group(&db, group_id.to_string(), updated_group).await;
 
     if response.status().is_success() {

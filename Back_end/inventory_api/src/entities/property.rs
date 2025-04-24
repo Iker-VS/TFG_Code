@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -142,8 +142,8 @@ async fn create_property_handler(
     }
 }
 
-#[put("/properties/{id}")]
-async fn update_property_handler(
+#[patch("/properties/{id}")]
+async fn patch_property_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_property: web::Json<Property>,
@@ -156,7 +156,6 @@ async fn update_property_handler(
     let mut update_doc = doc! {
         "$set": {
             "name": updated_property.name.clone(),
-            "groupId": updated_property.group_id.clone(),
         }
     };
 
@@ -169,17 +168,6 @@ async fn update_property_handler(
             .insert("direction", direction.clone());
     } else {
         update_doc.insert("$unset", doc! {"direction": ""});
-    }
-
-    if let Some(user_id) = &updated_property.user_id {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("userId", user_id.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"userId": ""});
     }
 
     match collection
@@ -252,6 +240,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_properties_handler)
         .service(get_properties_from_group_handler)
         .service(create_property_handler)
-        .service(update_property_handler)
+        .service(patch_property_handler)
         .service(delete_property_handler);
 }

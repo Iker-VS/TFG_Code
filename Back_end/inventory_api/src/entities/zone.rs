@@ -1,5 +1,5 @@
 use crate::entities::item::{delete_item, Item};
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -134,7 +134,7 @@ async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)
     }
 }
 
-#[put("/zones/{id}")]
+#[patch("/zones/{id}")]
 async fn update_zones_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -146,37 +146,12 @@ async fn update_zones_handler(
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
 
-    // Se crea un documento para $set
-    let mut set_doc = doc! {
-        "name": updated_zone.name.clone(),
-        "propertyId": updated_zone.property_id.clone(),
+    // Solo se permite actualizar el campo 'name'
+    let set_doc = doc! {
+        "name": updated_zone.name.clone()
     };
-    if let Some(user_id) = &updated_zone.user_id {
-        set_doc.insert("userId", user_id.clone());
-    }
-    if let Some(parent_zone_id) = &updated_zone.parent_zone_id {
-        set_doc.insert("parentZoneId", parent_zone_id.clone());
-    }
 
-    // Se crea un documento para $unset solo si es necesario
-    let mut unset_doc = doc! {};
-    if updated_zone.user_id.is_none() {
-        unset_doc.insert("userId", "");
-    }
-    if updated_zone.parent_zone_id.is_none() {
-        unset_doc.insert("parentZoneId", "");
-    }
-
-    // Se arma el update final con ambos documentos si aplica
-    let mut update_doc = doc! {};
-    if !set_doc.is_empty() {
-        update_doc.insert("$set", set_doc);
-    }
-    if !unset_doc.is_empty() {
-        update_doc.insert("$unset", unset_doc);
-    }
-
-    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
+    match collection.update_one(doc! {"_id": obj_id}, doc! { "$set": set_doc }).await {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
         Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),

@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, put, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -160,7 +160,7 @@ async fn create_user_group_handler(
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
-#[put("/user-group/{id}")]
+#[patch("/user-group/{id}")]
 async fn update_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,

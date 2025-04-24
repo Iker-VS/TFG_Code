@@ -1,7 +1,7 @@
 use super::user_group::UserGroup;
 use crate::middleware::auth::{self};
 use crate::{entities::user_group::delete_user_group};
-use actix_web::{delete, get, post, put, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use regex::Regex;
 use mongodb::{
@@ -152,7 +152,7 @@ async fn create_user_handler(
 }
 
 
-#[put("/users/{id}")]
+#[patch("/users/{id}")]
 async fn update_user_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -178,7 +178,6 @@ async fn update_user_handler(
 
     let mut update_doc = doc! {
         "$set": {
-            "mail": updated_user.mail.clone(),
             "passwordHash": updated_user.password_hash.clone(),
             "name": updated_user.name.clone(),
         }
