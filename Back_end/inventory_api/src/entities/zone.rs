@@ -107,7 +107,7 @@ async fn get_zone_from_parent_handler(
         .find(doc! {
             "parentZoneId": parent_id,
             "$or": [
-                { "userId": { "$exists": false } },
+                { "userId": { "$exists": false } },            
                 { "userId": token_user_obj_id }
             ]
         })
