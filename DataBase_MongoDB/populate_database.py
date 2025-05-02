@@ -29,31 +29,33 @@ def clear_collections():
         db[col].drop()
     print("Colecciones limpiadas.")
 
-# Funciones auxiliares
+# Función de hashing: SHA256 de la cadena dada
 
-def random_hash():
-    pwd = fake.password(length=10)
-    return hashlib.sha256(pwd.encode()).hexdigest()
+def hash_password(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
 
 # Generación de datos
 
 def create_users(n):
     users = []
-    # Crear usuario admin
+    # Crear usuario admin: contraseña = "Administrador"
+    admin_name = "Administrador"
     admin = {
         "mail": "admin@ejemplo.com",
-        "passwordHash": random_hash(),
-        "name": "Administrador",
+        "passwordHash": hash_password(admin_name),
+        "name": admin_name,
         "admin": True
     }
     res = db.users.insert_one(admin)
     users.append({**admin, "_id": res.inserted_id})
 
     for _ in range(n - 1):
+        name = fake.name()
         user = {
             "mail": fake.unique.email(),
-            "passwordHash": random_hash(),
-            "name": fake.name(),
+            # contraseña = nombre de usuario
+            "passwordHash": hash_password(name),
+            "name": name,
         }
         res = db.users.insert_one(user)
         users.append({**user, "_id": res.inserted_id})
@@ -113,7 +115,7 @@ def create_zones(properties, users):
     for prop in properties:
         count = random.randint(*ZONES_PER_PROPERTY)
         parent = None
-        for i in range(count):
+        for _ in range(count):
             zone = {
                 "name": f"Zona {fake.word().capitalize()}",
                 "propertyId": prop["_id"],
@@ -139,6 +141,8 @@ def create_items(zones, groups):
             item = {
                 "name": fake.word().capitalize(),
                 **({"description": fake.sentence(nb_words=6)} if random.random() < 0.7 else {}),
+                # URL de imagen simulada
+                **({"pictureUrl": fake.image_url()}),
                 "zoneId": zone["_id"],
                 **({"tags": random.sample(tag_choices, k=random.randint(1, len(tag_choices))) } if tag_choices else {})
             }
