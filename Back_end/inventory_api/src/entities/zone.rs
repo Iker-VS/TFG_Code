@@ -135,7 +135,7 @@ async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)
 }
 
 #[patch("/zones/{id}")]
-async fn update_zones_handler(
+async fn patch_zones_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_zone: web::Json<Zone>,
@@ -213,6 +213,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_zones_handler)
         .service(get_zone_from_parent_handler)
         .service(create_zone_handler)
-        .service(update_zones_handler)
+        .service(patch_zones_handler)
         .service(delete_zone_handler);
 }

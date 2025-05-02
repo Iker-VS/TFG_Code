@@ -1,7 +1,7 @@
 use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId},
+    bson::{doc, oid::ObjectId, Document},
     Database,
 };
 use serde::{Deserialize, Serialize};
@@ -146,28 +146,47 @@ async fn create_property_handler(
 async fn patch_property_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
-    updated_property: web::Json<Property>,
+    updated_property: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let collection = db.collection::<Property>("properties");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let mut update_doc = doc! {
-        "$set": {
-            "name": updated_property.name.clone(),
-        }
-    };
 
-    if let Some(direction) = &updated_property.direction {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("direction", direction.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"direction": ""});
+    let mut set_doc = Document::new();
+    let mut unset_doc = Document::new();
+
+    // Campo: name (solo si está presente con valor)
+    if let Some(value) = updated_property.get("name") {
+        match value {
+            serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
+            serde_json::Value::Null => return HttpResponse::BadRequest().body("'name' no puede ser null"),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+        };
+    }
+
+    // Campo opcional: direction
+    if let Some(value) = updated_property.get("direction") {
+        match value {
+            serde_json::Value::String(dir) => set_doc.insert("direction", dir.clone()),
+            serde_json::Value::Null => unset_doc.insert("direction", ""),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'direction'"),
+        };
+    }
+
+    // Validar que haya algo que actualizar
+    if set_doc.is_empty() && unset_doc.is_empty() {
+        return HttpResponse::BadRequest().body("No hay campos para actualizar");
+    }
+
+    // Construir update_doc final
+    let mut update_doc = Document::new();
+    if !set_doc.is_empty() {
+        update_doc.insert("$set", set_doc);
+    }
+    if !unset_doc.is_empty() {
+        update_doc.insert("$unset", unset_doc);
     }
 
     match collection
@@ -179,6 +198,8 @@ async fn patch_property_handler(
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
+
+
 
 pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse {
     let zone_collection = db.collection::<Zone>("zones");

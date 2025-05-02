@@ -84,7 +84,7 @@ async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>,rep
 }
 
 #[patch("/logs/{id}")]
-async fn update_log_handler(
+async fn patch_log_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_log: web::Json<Log>,
@@ -100,10 +100,7 @@ async fn update_log_handler(
     };
     let update_doc = doc! {
         "$set": {
-            "description": updated_log.description.clone(),
-            "time": updated_log.time.clone(),
-            "groupId": updated_log.group_id.clone(),
-            "UserId": updated_log.user_id.clone(),
+            "description": updated_log.description.clone()
         }
     };
     match collection
@@ -143,6 +140,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_log_handler)
         .service(get_logs_handler)
         .service(create_log_handler)
-        .service(update_log_handler)
+        .service(patch_log_handler)
         .service(delete_log_handler);
 }

@@ -1,7 +1,7 @@
 use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId},
+    bson::{self, doc, oid::ObjectId},
     Database,
 };
 use rand::Rng;
@@ -143,79 +143,115 @@ async fn create_group_handler(
     }
 }
 
-async fn update_group(
+async fn patch_group(
     db: &Database,
     group_id: String,
-    updated_group: web::Json<Group>,
+    updated_group: web::Json<serde_json::Value>,
 ) -> HttpResponse {
     let collection = db.collection::<Group>("groups");
     let obj_id = match ObjectId::parse_str(group_id.clone()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    if updated_group.user_count == 0 {
+
+    // Recuperar grupo actual para validaciones
+    let existing_group = match collection.find_one(doc! {"_id": &obj_id}).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Grupo no encontrado"),
+        Err(_) => return HttpResponse::InternalServerError().body("Error al acceder a la base de datos"),
+    };
+
+    let name = updated_group.get("name");
+    let user_count = updated_group.get("userCount");
+
+    let user_count_val = user_count
+        .and_then(|v| v.as_i64())
+        .or(Some(existing_group.user_count.into()));
+
+    if let Some(0) = user_count_val {
         return delete_group(db, group_id).await;
-    } else {
-        let mut update_doc = doc! {
-            "$set": {
-                "name": updated_group.name.clone(),
-                "userCount": updated_group.user_count.clone(),
+    }
+
+    let mut update_set = doc! {};
+    let mut update_unset = doc! {};
+
+    if let Some(name_val) = name.and_then(|v| v.as_str()) {
+        update_set.insert("name", name_val);
+    }
+
+    if let Some(user_count_val) = user_count.and_then(|v| v.as_i64()) {
+        update_set.insert("userCount", user_count_val);
+    }
+
+    match updated_group.get("userMax") {
+        Some(val) if val.is_null() => {
+            update_unset.insert("userMax", "");
+        }
+        Some(val) => {
+            if let Some(user_max_val) = val.as_i64() {
+                if let Some(current_user_count) = user_count_val {
+                    if user_max_val < current_user_count {
+                        return HttpResponse::BadRequest()
+                            .body("Mayor numero de usuarios de los permitidos");
+                    }
+                }
+                update_set.insert("userMax", user_max_val);
             }
-        };
-
-        if let Some(user_max) = &updated_group.user_max {
-            if user_max < &updated_group.user_count {
-                return HttpResponse::BadRequest().body("Mayor numero de usuarios de los permitidos");
-            }
-            update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("userMax", user_max.clone());
-        } else {
-            update_doc.insert("$unset", doc! {"user_max": ""});
         }
+        None => {}
+    }
 
-        if let Some(tags) = &updated_group.tags {
-            update_doc.get_mut("$set").unwrap().as_document_mut().unwrap().insert("tags", tags.clone());
-        } else {
-            update_doc.insert("$unset", doc! {"tags": ""});
+    match updated_group.get("tags") {
+        Some(val) if val.is_null() => {
+            update_unset.insert("tags", "");
         }
+        Some(val) => {
+            update_set.insert("tags", bson::to_bson(val).unwrap());
+        }
+        None => {}
+    }
 
-        match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
-            Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
-            Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
-            Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
-        }
+    let mut update_doc = doc! {};
+    if !update_set.is_empty() {
+        update_doc.insert("$set", update_set);
+    }
+    if !update_unset.is_empty() {
+        update_doc.insert("$unset", update_unset);
+    }
+
+    if update_doc.is_empty() {
+        return HttpResponse::BadRequest().body("No se especificaron campos a modificar");
+    }
+
+    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Grupo actualizado"),
+        Ok(_) => HttpResponse::NotFound().body("Grupo no encontrado"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
 #[patch("/groups/{id}")]
-async fn update_group_handler(
+async fn patch_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
-    updated_group: web::Json<Group>,
+    updated_group: web::Json<serde_json::Value>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Clona las claims para evitar problemas de ciclo de vida
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
 
-        let group_id = match ObjectId::parse_str(&path.into_inner()) {
+    let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(group_id) => group_id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
 
-    // Si el usuario es admin, se permite modificar sin comprobar pertenencia
     if claims.role != "admin" {
-        // Si es usuario normal, se comprueba que pertenezca al grupo
         let user_group_collection = db.collection::<UserGroup>("userGroup");
-        let user_group = match user_group_collection
-.find_one(doc! {"groupId": &group_id})
-.await
-{
+        let user_group = match user_group_collection.find_one(doc! {"groupId": &group_id}).await {
             Ok(Some(user_group)) => user_group,
-            Ok(None) => {
-                return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo")
-            }
+            Ok(None) => return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo"),
             Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
         };
 
@@ -223,15 +259,15 @@ async fn update_group_handler(
             return HttpResponse::Unauthorized().body("Acceso no autorizado");
         }
     }
-        
-        let client = db.client();
+
+    let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
     session.start_transaction().await.ok();
-    
-    let response = update_group(&db, group_id.to_string(), updated_group).await;
+
+    let response = patch_group(&db, group_id.to_string(), updated_group).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
@@ -241,6 +277,7 @@ async fn update_group_handler(
 
     response
 }
+
 
 pub async fn delete_group(db: &Database, group_id: String) -> HttpResponse {
     let group_collection = db.collection::<Group>("groups");
@@ -321,6 +358,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_groups_handler)
         .service(get_group_by_code_handler)
         .service(create_group_handler)
-        .service(update_group_handler)
+        .service(patch_group_handler)
         .service(delete_group_handler);
 }

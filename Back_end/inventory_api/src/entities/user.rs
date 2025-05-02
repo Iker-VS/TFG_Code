@@ -1,15 +1,17 @@
 use super::user_group::UserGroup;
+use crate::entities::user_group::delete_user_group;
 use crate::middleware::auth::{self};
-use crate::{entities::user_group::delete_user_group};
 use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
-use regex::Regex;
+use mongodb::bson::Document;
 use mongodb::{
     bson::{doc, oid::ObjectId},
     Database,
 };
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use sha2::{Digest, Sha256}; // Nuevo import para cifrado
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -35,20 +37,29 @@ impl User {
     }
 }
 
+// Función helper para cifrar contraseñas
+fn hash_password(password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 #[get("/users")]
-async fn get_users_handler(
-    db: web::Data<Database>,
-    req: HttpRequest,
-) -> impl Responder {
+async fn get_users_handler(db: web::Data<Database>, req: HttpRequest) -> impl Responder {
     // Recupera las claims inyectadas por el middleware
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
 
     // Solo el admin puede obtener todos los usuarios
     if claims.role != "admin" {
-        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
+        return HttpResponse::Unauthorized()
+            .body("Acceso no autorizado: se requiere administrador");
     }
 
     let collection = db.collection::<User>("users");
@@ -77,7 +88,6 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     }
 }
 
-
 #[post("/users/login")]
 async fn login_handler(
     db: web::Data<Database>,
@@ -93,15 +103,24 @@ async fn login_handler(
         None => return HttpResponse::BadRequest().body("Falta el campo 'password'"),
     };
 
+    // Cifrar la contraseña recibida
+    let hashed_password = hash_password(password);
+
     let collection = db.collection::<User>("users");
     match collection
-        .find_one(doc! {"$and": [{"mail": mail}, {"passwordHash": password}]})
+        .find_one(doc! {"$and": [{"mail": mail}, {"passwordHash": hashed_password}]})
         .await
     {
         Ok(Some(user)) => {
             let token = auth::generate_token(
                 user.id.clone().unwrap().to_hex(),
-                user.admin.map_or("user".to_string(), |b| if b { "admin".to_string() } else { "user".to_string() }),
+                user.admin.map_or("user".to_string(), |b| {
+                    if b {
+                        "admin".to_string()
+                    } else {
+                        "user".to_string()
+                    }
+                }),
             );
             HttpResponse::Ok().json(serde_json::json!({
                 "token": token,
@@ -114,12 +133,9 @@ async fn login_handler(
 }
 
 #[post("/users/register")]
-async fn create_user_handler(
-    db: web::Data<Database>,
-    new_user: web::Json<User>
-) -> impl Responder {
+async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>) -> impl Responder {
     let collection = db.collection::<User>("users");
-    
+
     if collection
         .find_one(doc! {"mail": &new_user.mail})
         .await
@@ -128,14 +144,16 @@ async fn create_user_handler(
     {
         return HttpResponse::BadRequest().body("El correo está en uso");
     }
-    
+
     // Valida que el correo cumpla con la expresión regular "^.+@.+$"
     let email_regex = Regex::new(r"^.+@.+$").expect("Failed to create regex");
     if !email_regex.is_match(&new_user.mail) {
         return HttpResponse::BadRequest().body("El correo no es válido");
     }
-    
+
     let mut user = new_user.into_inner();
+    // Cifrar la contraseña antes de guardarla
+    user.password_hash = hash_password(&user.password_hash);
     user.id = None;
     user.admin = None;
     match collection.insert_one(&user).await {
@@ -151,17 +169,16 @@ async fn create_user_handler(
     }
 }
 
-
 #[patch("/users/{id}")]
-async fn update_user_handler(
+async fn patch_user_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
-    updated_user: web::Json<User>,
+    updated_user: web::Json<serde_json::Value>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Recupera las claims ya decodificadas del middleware (se asume que Claims implementa Clone)
+    // Recupera las claims ya decodificadas
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(claims) => claims,
+        Some(c) => c,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
 
@@ -176,37 +193,62 @@ async fn update_user_handler(
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
 
-    let mut update_doc = doc! {
-        "$set": {
-            "passwordHash": updated_user.password_hash.clone(),
-            "name": updated_user.name.clone(),
-        }
-    };
+    let mut set_doc = Document::new();
+    let mut unset_doc = Document::new();
 
-    if let Some(admin) = &updated_user.admin {
-        if claims.role == "admin" {
-            update_doc
-                .get_mut("$set")
-                .unwrap()
-                .as_document_mut()
-                .unwrap()
-                .insert("admin", admin.clone());
-        }
-    } else {
-        update_doc.insert("$unset", doc! {"admin": ""});
+    // Campo: name (solo si está presente con valor)
+    if let Some(value) = updated_user.get("name") {
+        match value {
+            serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
+            serde_json::Value::Null => return HttpResponse::BadRequest().body("'name' no puede ser null"),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+        };
     }
 
-    match collection
-        .update_one(doc! {"_id": obj_id}, update_doc)
-        .await
-    {
-        Ok(result) if result.matched_count == 1 => {
-            HttpResponse::Ok().body("Usuario actualizado")
+    // Campo: passwordHash (solo si está presente con valor)
+    if let Some(value) = updated_user.get("passwordHash") {
+        match value {
+            serde_json::Value::String(pass) => {
+                let hashed = hash_password(pass);
+                set_doc.insert("passwordHash", hashed);
+            }
+            serde_json::Value::Null => return HttpResponse::BadRequest().body("'passwordHash' no puede ser null"),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'passwordHash'"),
+        };
+    }
+
+    // Campo opcional: admin (solo admin puede modificar)
+    if claims.role == "admin" {
+        if let Some(value) = updated_user.get("admin") {
+            match value {
+                serde_json::Value::Bool(b) => set_doc.insert("admin", *b),
+                serde_json::Value::Null => unset_doc.insert("admin", ""),
+                _ => return HttpResponse::BadRequest().body("Valor inválido para 'admin'"),
+            };
         }
+    }
+
+    // Validar que haya algo que actualizar
+    if set_doc.is_empty() && unset_doc.is_empty() {
+        return HttpResponse::BadRequest().body("No hay campos para actualizar");
+    }
+
+    // Construir update_doc final
+    let mut update_doc = Document::new();
+    if !set_doc.is_empty() {
+        update_doc.insert("$set", set_doc);
+    }
+    if !unset_doc.is_empty() {
+        update_doc.insert("$unset", unset_doc);
+    }
+
+    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
+        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Usuario actualizado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente"),
     }
 }
+
 
 pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
     let item_collection = db.collection::<User>("users");
@@ -250,7 +292,11 @@ async fn delete_user_handler(
     req: HttpRequest,
 ) -> impl Responder {
     // Recupera las claims insertadas por el middleware
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
@@ -259,7 +305,7 @@ async fn delete_user_handler(
     if !(claims.role == "admin" || (claims.role == "user" && claims.sub == user_id)) {
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
     }
-    
+
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
@@ -279,7 +325,7 @@ async fn delete_user_handler(
 pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_handler)
         .service(get_user_handler)
-        .service(update_user_handler)
+        .service(patch_user_handler)
         .service(delete_user_handler);
 }
 pub fn configure_public_routes(cfg: &mut web::ServiceConfig) {

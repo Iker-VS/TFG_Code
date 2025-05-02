@@ -1,7 +1,7 @@
 use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{self, doc, oid::ObjectId, DateTime},
+    bson::{doc, oid::ObjectId, Document},
     Database,
 };
 use serde::{Deserialize, Serialize};
@@ -18,22 +18,7 @@ pub struct Item {
     #[serde(rename = "zoneId")]
     pub zone_id: ObjectId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub values: Option<Vec<ValueEntry>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
-}
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ValueEntry {
-    name: String,
-    value: Value,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Value {
-    Text(String),
-    Number(i32),
-    Date(DateTime),
 }
 
 impl Item {
@@ -42,7 +27,6 @@ impl Item {
         description: Option<String>,
         picture_url: Option<String>,
         zone_id: ObjectId,
-        values: Option<Vec<ValueEntry>>,
         tags: Option<Vec<String>>,
     ) -> Item {
         Self {
@@ -51,7 +35,6 @@ impl Item {
             description,
             picture_url,
             zone_id,
-            values,
             tags,
         }
     }
@@ -158,69 +141,76 @@ async fn create_item_handler(db: web::Data<Database>, new_item: web::Json<Item>)
 }
 
 #[patch("/items/{id}")]
-async fn update_item_handler(
+async fn patch_item_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
-    updated_item: web::Json<Item>,
+    updated_item: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let collection = db.collection::<Item>("items");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
-    let mut update_doc = doc! {
-        "$set": {
-            "name": updated_item.name.clone(),
-        }
-    };
-    if let Some(description) = &updated_item.description {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("description", description.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"description": ""});
+
+    let mut set_doc = Document::new();
+    let mut unset_doc = Document::new();
+
+    // Campo: name (solo si está presente con valor)
+    if let Some(value) = updated_item.get("name") {
+        match value {
+            serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
+            serde_json::Value::Null => return HttpResponse::BadRequest().body("'name' no puede ser null"),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+        };
     }
 
-    if let Some(picture_url) = &updated_item.picture_url {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("pictureUrl", picture_url.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"pictureUrl": ""});
+    // Campo opcional: description
+    if let Some(value) = updated_item.get("description") {
+        match value {
+            serde_json::Value::String(desc) => set_doc.insert("description", desc.clone()),
+            serde_json::Value::Null => unset_doc.insert("description", ""),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'description'"),
+        };
     }
-    if let Some(values) = &updated_item.values {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert(
-                "values",
-                values
+
+    // Campo opcional: pictureUrl
+    if let Some(value) = updated_item.get("pictureUrl") {
+        match value {
+            serde_json::Value::String(url) => set_doc.insert("pictureUrl", url.clone()),
+            serde_json::Value::Null => unset_doc.insert("pictureUrl", ""),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'pictureUrl'"),
+        };
+    }
+
+    // Campo opcional: tags
+    if let Some(value) = updated_item.get("tags") {
+        match value {
+            serde_json::Value::Array(tags) => {
+                let string_tags: Vec<String> = tags
                     .iter()
-                    .map(|v| bson::to_bson(v).ok())
-                    .collect::<Option<Vec<_>>>(),
-            );
-    } else {
-        update_doc.insert("$unset", doc! {"values": ""});
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                set_doc.insert("tags", string_tags)
+            },
+            serde_json::Value::Null => unset_doc.insert("tags", ""),
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'tags'"),
+        };
     }
 
-    if let Some(tags) = &updated_item.tags {
-        update_doc
-            .get_mut("$set")
-            .unwrap()
-            .as_document_mut()
-            .unwrap()
-            .insert("tags", tags.clone());
-    } else {
-        update_doc.insert("$unset", doc! {"tags": ""});
+    // Validar que haya algo que actualizar
+    if set_doc.is_empty() && unset_doc.is_empty() {
+        return HttpResponse::BadRequest().body("No hay campos para actualizar");
     }
+
+    // Construir update_doc final
+    let mut update_doc = Document::new();
+    if !set_doc.is_empty() {
+        update_doc.insert("$set", set_doc);
+    }
+    if !unset_doc.is_empty() {
+        update_doc.insert("$unset", unset_doc);
+    }
+
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
@@ -230,6 +220,7 @@ async fn update_item_handler(
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
+
 
 pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
     let collection = db.collection::<Item>("items");
@@ -266,6 +257,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_items_handler)
         .service(get_items_from_zone_handler)
         .service(create_item_handler)
-        .service(update_item_handler)
+        .service(patch_item_handler)
         .service(delete_item_handler);
 }

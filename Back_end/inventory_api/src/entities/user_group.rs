@@ -160,8 +160,9 @@ async fn create_user_group_handler(
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
+// seguramente no se use con opción de borrar
 #[patch("/user-group/{id}")]
-async fn update_user_group_handler(
+async fn patch_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_user_group: web::Json<UserGroup>,
@@ -236,6 +237,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(get_groups_from_user_handler)
         .service(get_users_from_group_handler)
         .service(create_user_group_handler)
-        .service(update_user_group_handler)
+        .service(patch_user_group_handler)
         .service(delete_user_group_handler);
 }
