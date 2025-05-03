@@ -25,17 +25,17 @@ pub struct User {
     pub admin: Option<bool>,
 }
 
-impl User {
-    pub fn new(mail: String, password_hash: String, name: String, admin: Option<bool>) -> Self {
-        Self {
-            id: None,
-            mail,
-            password_hash,
-            name,
-            admin,
-        }
-    }
-}
+// impl User {
+//     pub fn new(mail: String, password_hash: String, name: String, admin: Option<bool>) -> Self {
+//         Self {
+//             id: None,
+//             mail,
+//             password_hash,
+//             name,
+//             admin,
+//         }
+//     }
+// }
 
 // Función helper para cifrar contraseñas
 fn hash_password(password: &str) -> String {
@@ -75,12 +75,42 @@ async fn get_users_handler(db: web::Data<Database>, req: HttpRequest) -> impl Re
 }
 
 #[get("/users/{id}")]
-async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>, req: HttpRequest) -> impl Responder {
+    // Retrieve claims from the middleware and ensure admin access
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+    if claims.role != "admin" {
+        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
+    }
+    // ...existing code...
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
+    match collection.find_one(doc! {"_id": obj_id}).await {
+        Ok(Some(user)) => HttpResponse::Ok().json(user),
+        Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+    }
+}
+
+#[get("/users/me/")]
+async fn get_my_user_handler(db: web::Data<Database>, req: HttpRequest) -> impl Responder {
+    // Retrieve claims from the token
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(c) => c,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+    // Extract user id from claims and parse as ObjectId
+    let obj_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+    // Query the "users" collection for the user's document
+    let collection = db.collection::<User>("users");
     match collection.find_one(doc! {"_id": obj_id}).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
         Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
@@ -159,7 +189,11 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
     match collection.insert_one(&user).await {
         Ok(result) => {
             user.id = result.inserted_id.as_object_id();
-            let token = auth::generate_token(result.inserted_id.to_string(), "user".to_string());
+            //let token = auth::generate_token(result.inserted_id.to_string(), "user".to_string());
+            let token = auth::generate_token(
+                result.inserted_id.as_object_id().unwrap().to_hex(),
+                "user".to_string()
+            );
             HttpResponse::Ok().json(serde_json::json!({
                 "token": token,
                 "user": user
@@ -281,7 +315,7 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
     match item_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("Usuario eliminado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
 
@@ -325,6 +359,7 @@ async fn delete_user_handler(
 pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_users_handler)
         .service(get_user_handler)
+        .service(get_my_user_handler)
         .service(patch_user_handler)
         .service(delete_user_handler);
 }

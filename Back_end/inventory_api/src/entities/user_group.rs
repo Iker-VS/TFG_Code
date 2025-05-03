@@ -1,4 +1,4 @@
-use actix_web::{delete, get, patch, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -17,15 +17,15 @@ pub struct UserGroup {
     #[serde(rename = "userId")]
     pub user_id: ObjectId,
 }
-impl UserGroup {
-    fn new(group_id: ObjectId, user_id: ObjectId) -> UserGroup {
-        Self {
-            id: None,
-            group_id,
-            user_id,
-        }
-    }
-}
+// impl UserGroup {
+//     fn new(group_id: ObjectId, user_id: ObjectId) -> UserGroup {
+//         Self {
+//             id: None,
+//             group_id,
+//             user_id,
+//         }
+//     }
+// }
 
 #[get("/user-group")]
 async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
@@ -72,7 +72,10 @@ async fn get_user_group_id_handler(
         Err(_) => return HttpResponse::BadRequest().body("ID de grupo inválido"),
     };
     let collection = db.collection::<UserGroup>("userGroup");
-    match collection.find_one(doc! {"userId": user_id, "groupId": group_id}).await {
+    match collection
+        .find_one(doc! {"userId": user_id, "groupId": group_id})
+        .await
+    {
         Ok(Some(user_group)) => HttpResponse::Ok().json(user_group.id.unwrap()),
         Ok(None) => HttpResponse::NotFound().body("No se encontró registro para el user-group"),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
@@ -80,7 +83,10 @@ async fn get_user_group_id_handler(
 }
 
 #[get("/user-group/group/{id}")]
-async fn get_users_from_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+async fn get_users_from_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -94,32 +100,46 @@ async fn get_users_from_group_handler(db: web::Data<Database>, path: web::Path<S
         Ok(users) => users,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
-    
+
     let users_id: Vec<ObjectId> = user_group.iter().map(|u| u.user_id).collect();
     let users_collection = db.collection::<User>("users");
-    let mut users:Vec<User>=Vec::new();
-    for id in users_id{
+    let mut users: Vec<User> = Vec::new();
+    for id in users_id {
         match users_collection.find_one(doc! {"_id": id}).await {
             Ok(Some(user)) => users.push(user),
             Ok(None) => continue,
-            Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+            Err(_) => {
+                return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente")
+            }
         }
     }
-    if users.is_empty(){
-        return HttpResponse::BadRequest().body("no hay usarios asociados a ese grupo")
+    if users.is_empty() {
+        return HttpResponse::BadRequest().body("no hay usarios asociados a ese grupo");
     }
     HttpResponse::Ok().json(users)
 }
 
-#[get("/user-group/user/{id}")]
-async fn get_groups_from_user_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+#[get("/user-group/user/")]
+async fn get_groups_from_user_handler(
+    db: web::Data<Database>,
+    req: HttpRequest,
+) -> impl Responder {
+
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+    
+
+    // Se utiliza el campo 'sub' directamente, asumiendo que se generó como hexadecimal puro.
+    let user_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+    };
+
     let user_group_collection = db.collection::<UserGroup>("userGroup");
 
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
-    };
-    let user_group_cursor = match user_group_collection.find(doc! {"userId": obj_id}).await {
+    let user_group_cursor = match user_group_collection.find(doc! {"userId": user_id}).await {
         Ok(cursor) => cursor,
         Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     };
@@ -130,19 +150,20 @@ async fn get_groups_from_user_handler(db: web::Data<Database>, path: web::Path<S
     };
 
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
-    let mut groups:Vec<Group>=Vec::new();
+    let mut groups: Vec<Group> = Vec::new();
     let group_collection = db.collection::<Group>("groups");
-    for id in group_ids{
+    for id in group_ids {
         match group_collection.find_one(doc! {"_id": id}).await {
             Ok(Some(group)) => groups.push(group),
-            Ok(None) => continue, // Si no se encuentra, lo ignoramos
-            Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+            Ok(None) => continue,
+            Err(_) => {
+                return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente")
+            }
         }
     }
     if groups.is_empty() {
         return HttpResponse::BadRequest().body("No hay grupos asociados a ese usuario");
     }
-   
     HttpResponse::Ok().json(groups)
 }
 
@@ -212,10 +233,7 @@ async fn delete_user_group_handler(
     response
 }
 
-pub async fn delete_user_group(
-    db: &Database,
-    user_group_id:String,
-) -> HttpResponse {
+pub async fn delete_user_group(db: &Database, user_group_id: String) -> HttpResponse {
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(user_group_id) {
         Ok(id) => id,

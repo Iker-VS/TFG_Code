@@ -21,24 +21,24 @@ pub struct Item {
     pub tags: Option<Vec<String>>,
 }
 
-impl Item {
-    fn new(
-        name: String,
-        description: Option<String>,
-        picture_url: Option<String>,
-        zone_id: ObjectId,
-        tags: Option<Vec<String>>,
-    ) -> Item {
-        Self {
-            id: None,
-            name,
-            description,
-            picture_url,
-            zone_id,
-            tags,
-        }
-    }
-}
+// impl Item {
+//     fn new(
+//         name: String,
+//         description: Option<String>,
+//         picture_url: Option<String>,
+//         zone_id: ObjectId,
+//         tags: Option<Vec<String>>,
+//     ) -> Item {
+//         Self {
+//             id: None,
+//             name,
+//             description,
+//             picture_url,
+//             zone_id,
+//             tags,
+//         }
+//     }
+// }
 
 #[get("/items")]
 async fn get_items_handler(

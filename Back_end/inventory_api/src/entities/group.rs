@@ -31,24 +31,24 @@ pub struct Group {
 }
 
 impl Group {
-    fn new(
-        name: String,
-        user_max: Option<i32>,
-        user_count: i32,
-        group_code: Option<String>,
-        tags: Option<Vec<String>>,
-    ) -> Group {
-        Self {
-            id: None,
-            name,
-            user_max,
-            user_count,
-            group_code: group_code
-                .or_else(|| Some(Self::create_group_code()))
-                .unwrap(),
-            tags,
-        }
-    }
+    // fn new(
+    //     name: String,
+    //     user_max: Option<i32>,
+    //     user_count: i32,
+    //     group_code: Option<String>,
+    //     tags: Option<Vec<String>>,
+    // ) -> Group {
+    //     Self {
+    //         id: None,
+    //         name,
+    //         user_max,
+    //         user_count,
+    //         group_code: group_code
+    //             .or_else(|| Some(Self::create_group_code()))
+    //             .unwrap(),
+    //         tags,
+    //     }
+    // }
 
     fn create_group_code() -> String {
         let mut rand = rand::rng();
@@ -123,7 +123,27 @@ async fn get_group_by_code_handler(
 async fn create_group_handler(
     db: web::Data<Database>,
     new_group: web::Json<Group>,
+    req: HttpRequest,
 ) -> impl Responder {
+    // Obtener claims del token
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    let user_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+    };
+
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+    };
+
+    session.start_transaction().await.ok();
+
     let collection = db.collection::<Group>("groups");
     let mut group = new_group.into_inner();
     let mut group_code = Group::create_group_code();
@@ -136,11 +156,40 @@ async fn create_group_handler(
         group_code = Group::create_group_code();
     }
     group.group_code = group_code;
-    group.user_count = 0;
-    match collection.insert_one(group).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+    group.user_count = 1;
+
+    // Crear el grupo
+    let group_result = match collection.insert_one(&group).await {
+        Ok(result) => result,
+        Err(_) => {
+            session.abort_transaction().await.ok();
+            return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente");
+        }
+    };
+
+    let group_id = match group_result.inserted_id.as_object_id() {
+        Some(id) => id,
+        None => {
+            session.abort_transaction().await.ok();
+            return HttpResponse::BadRequest().body("Error al obtener ID del grupo");
+        }
+    };
+
+    // Crear la relación usuario-grupo
+    let user_group = UserGroup {
+        id: None,
+        group_id,
+        user_id,
+    };
+
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    if let Err(_) = user_group_collection.insert_one(&user_group).await {
+        session.abort_transaction().await.ok();
+        return HttpResponse::BadRequest().body("Error al crear la relación usuario-grupo");
     }
+
+    session.commit_transaction().await.ok();
+    HttpResponse::Ok().json(group_result.inserted_id)
 }
 
 async fn patch_group(

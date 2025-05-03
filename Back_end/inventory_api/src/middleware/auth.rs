@@ -73,11 +73,18 @@ where
                 &Validation::default(),
             ) {
                 Ok(data) => {
-                    if data.claims.sub.is_empty() {
+                    let mut claims = data.claims;
+                    claims.sub = claims.sub
+                        .strip_prefix("ObjectId(")
+                        .and_then(|s| s.strip_suffix(")"))
+                        .unwrap_or(&claims.sub)
+                        .to_string();
+
+                    if claims.sub.is_empty() {
                         Err(actix_web::error::ErrorBadRequest("ID inválido"))
                     } else {
                         // Inserta el ID en las extensiones de la request.
-                        req.extensions_mut().insert(data.claims);
+                        req.extensions_mut().insert(claims);
                         Ok(req)
                     }
                 }
@@ -119,10 +126,10 @@ pub fn generate_token(user_id: String, role:String ) -> String {
     )
     .unwrap()
 }
-pub fn decode_token(token: &str)->Result<Claims,Error>{
-    let clave = env::var("API_KEY").unwrap_or_else(|_| "clave_secreta".into());
-    decode::<Claims>(token, &DecodingKey::from_secret(clave.as_ref()), &Validation::default())
-        .map(|data| data.claims)
-        .map_err(|_| actix_web::error::ErrorUnauthorized("Token inválido o expirado"))
+// pub fn decode_token(token: &str)->Result<Claims,Error>{
+//     let clave = env::var("API_KEY").unwrap_or_else(|_| "clave_secreta".into());
+//     decode::<Claims>(token, &DecodingKey::from_secret(clave.as_ref()), &Validation::default())
+//         .map(|data| data.claims)
+//         .map_err(|_| actix_web::error::ErrorUnauthorized("Token inválido o expirado"))
 
-}
+// }

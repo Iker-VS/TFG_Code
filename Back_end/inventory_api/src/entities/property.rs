@@ -20,22 +20,22 @@ pub struct Property {
     #[serde(rename = "userId", skip_serializing_if = "Option::is_none")]
     pub user_id: Option<ObjectId>,
 }
-impl Property {
-    fn new(
-        name: String,
-        direction: Option<String>,
-        group_id: ObjectId,
-        user_id: Option<ObjectId>,
-    ) -> Property {
-        Self {
-            id: None,
-            name,
-            direction,
-            group_id,
-            user_id,
-        }
-    }
-}
+// impl Property {
+//     fn new(
+//         name: String,
+//         direction: Option<String>,
+//         group_id: ObjectId,
+//         user_id: Option<ObjectId>,
+//     ) -> Property {
+//         Self {
+//             id: None,
+//             name,
+//             direction,
+//             group_id,
+//             user_id,
+//         }
+//     }
+// }
 
 #[get("/properties")]
 async fn get_properties_handler(

@@ -22,17 +22,17 @@ pub struct Log {
     pub user_id: ObjectId,
 }
 
-impl Log {
-    fn new(description: String, time: DateTime, group_id: ObjectId, user_id: ObjectId) -> Log {
-        Self {
-            id: None,
-            description,
-            time,
-            group_id,
-            user_id,
-        }
-    }
-}
+// impl Log {
+//     fn new(description: String, time: DateTime, group_id: ObjectId, user_id: ObjectId) -> Log {
+//         Self {
+//             id: None,
+//             description,
+//             time,
+//             group_id,
+//             user_id,
+//         }
+//     }
+// }
 
 #[get("/logs")]
 async fn get_logs_handler(db: web::Data<Database>, rep: HttpRequest) -> impl Responder {

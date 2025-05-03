@@ -20,22 +20,22 @@ pub struct Zone {
     pub parent_zone_id: Option<ObjectId>,
 }
 
-impl Zone {
-    fn new(
-        name: String,
-        property_id: ObjectId,
-        user_id: Option<ObjectId>,
-        parent_zone_id: Option<ObjectId>,
-    ) -> Zone {
-        Self {
-            id: None,
-            name,
-            property_id,
-            user_id,
-            parent_zone_id,
-        }
-    }
-}
+// impl Zone {
+//     fn new(
+//         name: String,
+//         property_id: ObjectId,
+//         user_id: Option<ObjectId>,
+//         parent_zone_id: Option<ObjectId>,
+//     ) -> Zone {
+//         Self {
+//             id: None,
+//             name,
+//             property_id,
+//             user_id,
+//             parent_zone_id,
+//         }
+//     }
+// }
 
 #[get("/zones")]
 async fn get_zones_handler(
