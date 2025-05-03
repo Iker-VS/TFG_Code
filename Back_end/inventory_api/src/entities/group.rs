@@ -192,6 +192,92 @@ async fn create_group_handler(
     HttpResponse::Ok().json(group_result.inserted_id)
 }
 
+
+#[post("/groups/join/{code}")]
+async fn join_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    req: HttpRequest,
+) -> impl Responder {
+    // Obtener claims del token
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    let user_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+    };
+
+    let group_code = path.into_inner();
+    let group_collection = db.collection::<Group>("groups");
+    
+    // Buscar el grupo por código
+    let group = match group_collection.find_one(doc! {"groupCode": &group_code}).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return HttpResponse::NotFound().body("Grupo no encontrado"),
+        Err(_) => return HttpResponse::InternalServerError().body("Error al buscar el grupo"),
+    };
+
+    // Verificar si el usuario ya está en el grupo
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    if let Ok(Some(_)) = user_group_collection
+        .find_one(doc! {
+            "groupId": group.id.unwrap(),
+            "userId": user_id
+        })
+        .await
+    {
+        return HttpResponse::BadRequest().body("Ya eres miembro de este grupo");
+    }
+
+    // Verificar límite de usuarios
+    if let Some(max_users) = group.user_max {
+        if group.user_count >= max_users {
+            return HttpResponse::BadRequest().body("El grupo ha alcanzado su límite de usuarios");
+        }
+    }
+
+    // Iniciar transacción
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::InternalServerError().body("Error al iniciar la transacción"),
+    };
+    session.start_transaction().await.ok();
+
+    // Crear relación usuario-grupo
+    let user_group = UserGroup {
+        id: None,
+        group_id: group.id.unwrap(),
+        user_id,
+    };
+
+    if let Err(_) = user_group_collection.insert_one(&user_group).await {
+        session.abort_transaction().await.ok();
+        return HttpResponse::InternalServerError().body("Error al unirse al grupo");
+    }
+
+    // Incrementar user_count
+    match group_collection
+        .update_one(
+            doc! {"_id": group.id.unwrap()},
+            doc! {"$inc": {"userCount": 1}},
+        )
+        .await
+    {
+        Ok(_) => {
+            session.commit_transaction().await.ok();
+            HttpResponse::Ok().body("Te has unido al grupo exitosamente")
+        }
+        Err(_) => {
+            session.abort_transaction().await.ok();
+            HttpResponse::InternalServerError().body("Error al actualizar el contador de usuarios")
+        }
+    }
+}
+
 async fn patch_group(
     db: &Database,
     group_id: String,
@@ -402,11 +488,13 @@ pub async fn delete_group_handler(
     response
 }
 
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_group_handler)
         .service(get_groups_handler)
         .service(get_group_by_code_handler)
         .service(create_group_handler)
         .service(patch_group_handler)
-        .service(delete_group_handler);
+        .service(delete_group_handler)
+        .service(join_group_handler); 
 }
