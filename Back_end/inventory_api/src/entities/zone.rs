@@ -2,7 +2,7 @@ use crate::entities::item::{delete_item, Item};
 use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId},
+    bson::{doc, oid::ObjectId, Document},
     Database,
 };
 use serde::{Deserialize, Serialize};
@@ -124,10 +124,68 @@ async fn get_zone_from_parent_handler(
 }
 
 #[post("/zones")]
-async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>) -> impl Responder {
+async fn create_zone_handler(
+    db: web::Data<Database>,
+    new_zone: web::Json<serde_json::Value>,
+    req: HttpRequest,
+) -> impl Responder {
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    let name = match new_zone.get("name") {
+        Some(value) => match value.as_str() {
+            Some(s) => s.to_string(),
+            None => return HttpResponse::BadRequest().body("El nombre debe ser una cadena de texto"),
+        },
+        None => return HttpResponse::BadRequest().body("El nombre es requerido"),
+    };
+
+    let property_id = match new_zone.get("propertyId") {
+        Some(value) => match value.as_str() {
+            Some(id) => match ObjectId::parse_str(id) {
+                Ok(obj_id) => obj_id,
+                Err(_) => return HttpResponse::BadRequest().body("propertyId inválido"),
+            },
+            None => return HttpResponse::BadRequest().body("propertyId debe ser una cadena de texto"),
+        },
+        None => return HttpResponse::BadRequest().body("propertyId es requerido"),
+    };
+
+    let parent_zone_id = match new_zone.get("parentZoneId") {
+        Some(value) => match value.as_str() {
+            Some(id) => Some(match ObjectId::parse_str(id) {
+                Ok(obj_id) => obj_id,
+                Err(_) => return HttpResponse::BadRequest().body("parentZoneId inválido"),
+            }),
+            None => None,
+        },
+        None => None,
+    };
+
+    let is_private = new_zone.get("private")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let user_id = if is_private {
+        match ObjectId::parse_str(&claims.sub) {
+            Ok(id) => Some(id),
+            Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        }
+    } else {
+        None
+    };
+
+    let zone = Zone {
+        id: None,
+        name,
+        property_id,
+        parent_zone_id,
+        user_id,
+    };
+
     let collection = db.collection::<Zone>("zones");
-    let mut zone = new_zone.into_inner();
-    zone.id = None;
     match collection.insert_one(zone).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
@@ -138,20 +196,61 @@ async fn create_zone_handler(db: web::Data<Database>, new_zone: web::Json<Zone>)
 async fn patch_zones_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
-    updated_zone: web::Json<Zone>,
+    updated_zone: web::Json<serde_json::Value>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
     let collection = db.collection::<Zone>("zones");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
 
-    // Solo se permite actualizar el campo 'name'
-    let set_doc = doc! {
-        "name": updated_zone.name.clone()
-    };
+    let mut set_doc = doc! {};
+    let mut unset_doc = doc! {};
 
-    match collection.update_one(doc! {"_id": obj_id}, doc! { "$set": set_doc }).await {
+    // Campo name
+    if let Some(value) = updated_zone.get("name") {
+        match value {
+            serde_json::Value::String(name) => { set_doc.insert("name", name.clone()); },
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+        }
+    }
+
+    // Campo private
+    if let Some(value) = updated_zone.get("private") {
+        match value {
+            serde_json::Value::Bool(is_private) => {
+                if *is_private {
+                    match ObjectId::parse_str(&claims.sub) {
+                        Ok(user_id) => { set_doc.insert("userId", user_id); },
+                        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+                    }
+                } else {
+                    unset_doc.insert("userId", "");
+                }
+            },
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'private'"),
+        }
+    }
+
+    if set_doc.is_empty() && unset_doc.is_empty() {
+        return HttpResponse::BadRequest().body("No hay campos para actualizar");
+    }
+
+    let mut update_doc = Document::new();
+    if !set_doc.is_empty() {
+        update_doc.insert("$set", set_doc);
+    }
+    if !unset_doc.is_empty() {
+        update_doc.insert("$unset", unset_doc);
+    }
+
+    match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
         Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
