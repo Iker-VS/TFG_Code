@@ -15,7 +15,13 @@ use super::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CreateGroup {
+    pub name: String,
+    #[serde(rename = "userMax")]
+    pub user_max: Option<i32>,
+}
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Group {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
@@ -49,15 +55,25 @@ impl Group {
     //         tags,
     //     }
     // }
+}
 
-    fn create_group_code() -> String {
+async fn generate_unique_group_code(collection: &mongodb::Collection<Group>) -> String {
+    loop {
         let mut rand = rand::rng();
         let characters: Vec<char> = ('0'..='9').chain('a'..='z').chain('A'..='Z').collect();
 
         let group_code = (0..8)
             .map(|_| characters[rand.random_range(0..characters.len())])
             .collect::<String>();
-        group_code
+
+        if collection
+            .find_one(doc! {"groupCode": &group_code})
+            .await
+            .unwrap_or(None)
+            .is_none() 
+        {
+            return group_code;
+        }
     }
 }
 
@@ -122,7 +138,7 @@ async fn get_group_by_code_handler(
 #[post("/groups")]
 async fn create_group_handler(
     db: web::Data<Database>,
-    new_group: web::Json<Group>,
+    new_group: web::Json<CreateGroup>,
     req: HttpRequest,
 ) -> impl Responder {
     // Obtener claims del token
@@ -145,21 +161,20 @@ async fn create_group_handler(
     session.start_transaction().await.ok();
 
     let collection = db.collection::<Group>("groups");
-    let mut group = new_group.into_inner();
-    let mut group_code = Group::create_group_code();
-    while collection
-        .find_one(doc! {"groupCode":&group_code})
-        .await
-        .unwrap_or(None)
-        .is_some()
-    {
-        group_code = Group::create_group_code();
-    }
-    group.group_code = group_code;
-    group.user_count = 1;
+    let group_code = generate_unique_group_code(&collection).await;
 
-    // Crear el grupo
-    let group_result = match collection.insert_one(&group).await {
+    let group = Group {
+        id: None,
+        name: new_group.name.clone(),
+        user_max: new_group.user_max,
+        user_count: 1,
+        group_code,
+        tags: None,
+    };
+
+    let group_result = match collection.insert_one(group).await {
+    // Insertar usando el documento BSON explícito
+
         Ok(result) => result,
         Err(_) => {
             session.abort_transaction().await.ok();
