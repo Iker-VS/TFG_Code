@@ -131,11 +131,57 @@ async fn get_properties_from_group_handler(
 #[post("/properties")]
 async fn create_property_handler(
     db: web::Data<Database>,
-    new_property: web::Json<Property>,
+    new_property: web::Json<serde_json::Value>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
+    let name = match new_property.get("name") {
+        Some(value) => match value.as_str() {
+            Some(s) => s.to_string(),
+            None => return HttpResponse::BadRequest().body("El nombre debe ser una cadena de texto"),
+        },
+        None => return HttpResponse::BadRequest().body("El nombre es requerido"),
+    };
+
+    let direction = new_property.get("direction").and_then(|v| v.as_str()).map(String::from);
+    
+    let group_id = match new_property.get("groupId") {
+        Some(value) => match value.as_str() {
+            Some(id) => match ObjectId::parse_str(id) {
+                Ok(obj_id) => obj_id,
+                Err(_) => return HttpResponse::BadRequest().body("groupId inválido"),
+            },
+            None => return HttpResponse::BadRequest().body("groupId debe ser una cadena de texto"),
+        },
+        None => return HttpResponse::BadRequest().body("groupId es requerido"),
+    };
+
+    let is_private = new_property.get("private")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let user_id = if is_private {
+        match ObjectId::parse_str(&claims.sub) {
+            Ok(id) => Some(id),
+            Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        }
+    } else {
+        None
+    };
+
+    let property = Property {
+        id: None,
+        name,
+        direction,
+        group_id,
+        user_id,
+    };
+
     let collection = db.collection::<Property>("properties");
-    let mut property = new_property.into_inner();
-    property.id = None;
     match collection.insert_one(property).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
@@ -147,7 +193,13 @@ async fn patch_property_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
     updated_property: web::Json<serde_json::Value>,
+    req: HttpRequest,
 ) -> impl Responder {
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+
     let collection = db.collection::<Property>("properties");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
@@ -175,6 +227,23 @@ async fn patch_property_handler(
         };
     }
 
+    // Campo: private
+    if let Some(value) = updated_property.get("private") {
+        match value {
+            serde_json::Value::Bool(is_private) => {
+                if *is_private {
+                    match ObjectId::parse_str(&claims.sub) {
+                        Ok(user_id) => { set_doc.insert("userId", user_id); },
+                        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+                    }
+                } else {
+                    unset_doc.insert("userId", "");
+                }
+            },
+            _ => return HttpResponse::BadRequest().body("Valor inválido para 'private'"),
+        }
+    }
+
     // Validar que haya algo que actualizar
     if set_doc.is_empty() && unset_doc.is_empty() {
         return HttpResponse::BadRequest().body("No hay campos para actualizar");
@@ -198,8 +267,6 @@ async fn patch_property_handler(
         Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
     }
 }
-
-
 
 pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse {
     let zone_collection = db.collection::<Zone>("zones");
