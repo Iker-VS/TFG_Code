@@ -27,7 +27,7 @@ pub struct UserGroup {
 //     }
 // }
 
-#[get("/user-group")]
+#[get("/user-group-relationships")]
 async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let cursor = match collection.find(doc! {}).await {
@@ -40,7 +40,7 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     };
     HttpResponse::Ok().json(user_groups)
 }
-#[get("/user-group/{id}")]
+#[get("/user-group-relationship/{id}")]
 async fn get_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -57,7 +57,7 @@ async fn get_user_group_handler(
     }
 }
 
-#[get("/user-group/id/{userId}/{groupId}")]
+#[get("/user-group-relationship/find/{userId}/{groupId}")]
 async fn get_user_group_id_handler(
     db: web::Data<Database>,
     path: web::Path<(String, String)>,
@@ -82,7 +82,7 @@ async fn get_user_group_id_handler(
     }
 }
 
-#[get("/user-group/group/{id}")]
+#[get("/groups/{id}/users")]
 async fn get_users_from_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -119,7 +119,7 @@ async fn get_users_from_group_handler(
     HttpResponse::Ok().json(users)
 }
 
-#[get("/user-group/user/")]
+#[get("/users/me/groups")]
 async fn get_groups_from_user_handler(
     db: web::Data<Database>,
     req: HttpRequest,
@@ -167,7 +167,7 @@ async fn get_groups_from_user_handler(
     HttpResponse::Ok().json(groups)
 }
 
-#[post("/user-group")]
+#[post("/user-group-relationships")]
 async fn create_user_group_handler(
     db: web::Data<Database>,
     new_user_group: web::Json<UserGroup>,
@@ -182,7 +182,7 @@ async fn create_user_group_handler(
     }
 }
 // seguramente no se use con opción de borrar
-#[patch("/user-group/{id}")]
+#[patch("/user-group-relationships/{id}")]
 async fn patch_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
@@ -211,7 +211,7 @@ async fn patch_user_group_handler(
     }
 }
 
-#[delete("/user-group/{id}")]
+#[delete("/user-group-relationships/{id}")]
 async fn delete_user_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
