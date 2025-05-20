@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4.9.0"
+base64 = "0.22.1"
 dotenv = "0.15.0"
 futures-util = "0.3.31"
 jsonwebtoken = "9.3.1"
