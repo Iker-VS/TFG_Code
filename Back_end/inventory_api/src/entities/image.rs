@@ -1,13 +1,12 @@
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_multipart::Multipart;
+use actix_web::{get, patch, post, web, HttpRequest, HttpResponse, Responder};
+use futures_util::StreamExt;
+use mongodb::bson::{doc, oid::ObjectId};
+use mongodb::Database;
 use std::fs;
 use std::path::Path;
-use actix_multipart::Multipart;
-use futures_util::StreamExt;
-use mongodb::Database;
-use mongodb::bson::{doc, oid::ObjectId};
 
 use crate::entities::item::Item;
-
 
 #[get("/image/{filename}")]
 pub async fn get_image_by_name_handler(path: web::Path<String>) -> impl Responder {
@@ -23,7 +22,10 @@ pub async fn get_image_by_name_handler(path: web::Path<String>) -> impl Responde
     };
     HttpResponse::Ok()
         .content_type("image/png")
-        .append_header(("Content-Disposition", format!("inline; filename=\"{}\"", filename)))
+        .append_header((
+            "Content-Disposition",
+            format!("inline; filename=\"{}\"", filename),
+        ))
         .body(file_data)
 }
 
@@ -48,7 +50,7 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
                     data.extend_from_slice(&bytes);
                 }
                 object_id = Some(String::from_utf8_lossy(&data).to_string());
-            },
+            }
             Some("file") => {
                 let mut bytes_mut = bytes::BytesMut::new();
                 while let Some(chunk) = field.next().await {
@@ -59,7 +61,7 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
                     bytes_mut.extend_from_slice(&data);
                 }
                 file_bytes = Some(bytes_mut);
-            },
+            }
             _ => {
                 // ...existing code...
             }
@@ -81,8 +83,11 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
 
     // Comprobar que el item existe
     let items_collection = db.collection::<Item>("items");
-    match items_collection.find_one(doc! {"_id": item_obj_id.clone()}).await {
-        Ok(Some(_)) => { /* Item encontrado */ },
+    match items_collection
+        .find_one(doc! {"_id": item_obj_id.clone()})
+        .await
+    {
+        Ok(Some(_)) => { /* Item encontrado */ }
         _ => return HttpResponse::BadRequest().body("Item no encontrado"),
     }
 
@@ -100,17 +105,103 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
     }
 
     // Actualizar el campo pictureUrl del item
-    if let Err(_) = items_collection.update_one(
-        doc! {"_id": item_obj_id},
-        doc! { "$set": { "pictureUrl": file_name } }
-    ).await {
+    if let Err(_) = items_collection
+        .update_one(
+            doc! {"_id": item_obj_id},
+            doc! { "$set": { "pictureUrl": file_name } },
+        )
+        .await
+    {
         return HttpResponse::InternalServerError().body("Error actualizando item");
     }
-    
+
     HttpResponse::Ok().body("Imagen guardada y item actualizado exitosamente")
+}
+
+#[patch("/image/{id}")]
+pub async fn patch_image_handler(
+    path: web::Path<String>,
+    mut payload: Multipart,
+    db: web::Data<Database>,
+) -> impl Responder {
+    // Extraer objectID directamente desde la ruta
+    let oid_str = path.into_inner();
+    let item_obj_id = match ObjectId::parse_str(&oid_str) {
+        Ok(oid) => oid,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+
+    // Procesar multipart para obtener el campo "file"
+    let mut file_bytes: Option<bytes::BytesMut> = None;
+    while let Some(item) = payload.next().await {
+        let mut field = match item {
+            Ok(f) => f,
+            Err(_) => return HttpResponse::BadRequest().body("Error procesando multipart"),
+        };
+        if let Some("file") = field.name() {
+            let mut bytes_mut = bytes::BytesMut::new();
+            while let Some(chunk) = field.next().await {
+                let data = match chunk {
+                    Ok(d) => d,
+                    Err(_) => return HttpResponse::BadRequest().body("Error leyendo archivo"),
+                };
+                bytes_mut.extend_from_slice(&data);
+            }
+            file_bytes = Some(bytes_mut);
+        }
+    }
+    let file_data = match file_bytes {
+        Some(data) => data,
+        None => return HttpResponse::BadRequest().body("No se recibió archivo"),
+    };
+
+    // Verificar que el item existe y obtener su pictureUrl
+    let items_collection = db.collection::<mongodb::bson::Document>("items");
+    let existing_item = match items_collection
+        .find_one(doc! {"_id": item_obj_id.clone()})
+        .await
+    {
+        Ok(Some(doc)) => doc,
+        _ => return HttpResponse::BadRequest().body("Item no encontrado"),
+    };
+
+    // Borrar la imagen anterior si existe
+    if let Some(old_pic) = existing_item.get_str("pictureUrl").ok() {
+        let old_file_path = Path::new("images").join(old_pic);
+        if old_file_path.exists() {
+            let _ = fs::remove_file(old_file_path);
+        }
+    }
+
+    // Guardar la nueva imagen
+    let images_dir = Path::new("images");
+    if !images_dir.exists() {
+        if let Err(_) = fs::create_dir_all(&images_dir) {
+            return HttpResponse::InternalServerError().body("Error creando directorio");
+        }
+    }
+    let file_name = format!("{}.png", oid_str);
+    let file_path = images_dir.join(&file_name);
+    if let Err(_) = fs::write(&file_path, &file_data) {
+        return HttpResponse::InternalServerError().body("Error guardando archivo");
+    }
+
+    // Actualizar el campo pictureUrl del item
+    if let Err(_) = items_collection
+        .update_one(
+            doc! {"_id": item_obj_id},
+            doc! { "$set": { "pictureUrl": file_name } },
+        )
+        .await
+    {
+        return HttpResponse::InternalServerError().body("Error actualizando item");
+    }
+
+    HttpResponse::Ok().body("Imagen actualizada exitosamente")
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_image_by_name_handler);
     cfg.service(post_image_handler);
+    cfg.service(patch_image_handler);
 }
