@@ -50,7 +50,7 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
                     data.extend_from_slice(&bytes);
                 }
                 object_id = Some(String::from_utf8_lossy(&data).to_string());
-            }
+            },
             Some("file") => {
                 let mut bytes_mut = bytes::BytesMut::new();
                 while let Some(chunk) = field.next().await {
@@ -61,10 +61,9 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
                     bytes_mut.extend_from_slice(&data);
                 }
                 file_bytes = Some(bytes_mut);
-            }
-            _ => {
-                // ...existing code...
-            }
+            },
+            Some(_) => continue,
+            None => continue,
         }
     }
     // Validar recepción de archivo y objectID
