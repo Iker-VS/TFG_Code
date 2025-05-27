@@ -1,5 +1,5 @@
 pub mod group;
-pub mod images;
+pub mod image;
 pub mod item;
 pub mod log;
 pub mod property;

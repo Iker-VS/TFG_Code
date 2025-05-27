@@ -3,6 +3,10 @@ use std::fs;
 use std::path::Path;
 use actix_multipart::Multipart;
 use futures_util::StreamExt;
+use mongodb::Database;
+use mongodb::bson::{doc, oid::ObjectId};
+
+use crate::entities::item::Item;
 
 
 #[get("/image/{filename}")]
@@ -24,7 +28,7 @@ pub async fn get_image_by_name_handler(path: web::Path<String>) -> impl Responde
 }
 
 #[post("/image")]
-pub async fn post_image_handler(mut payload: Multipart) -> impl Responder {
+pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>) -> impl Responder {
     // Declaramos variables para objectID y archivo
     let mut object_id: Option<String> = None;
     let mut file_bytes: Option<bytes::BytesMut> = None;
@@ -61,27 +65,49 @@ pub async fn post_image_handler(mut payload: Multipart) -> impl Responder {
             }
         }
     }
-    // Validar recepción del archivo y objectID
+    // Validar recepción de archivo y objectID
     let file_data = match file_bytes {
         Some(data) => data,
         None => return HttpResponse::BadRequest().body("No se recibió archivo"),
     };
-    let oid = match object_id {
+    let oid_str = match object_id {
         Some(id) => id,
         None => return HttpResponse::BadRequest().body("No se recibió objectID"),
     };
+    let item_obj_id = match ObjectId::parse_str(&oid_str) {
+        Ok(oid) => oid,
+        Err(_) => return HttpResponse::BadRequest().body("objectID inválido"),
+    };
+
+    // Comprobar que el item existe
+    let items_collection = db.collection::<Item>("items");
+    match items_collection.find_one(doc! {"_id": item_obj_id.clone()}).await {
+        Ok(Some(_)) => { /* Item encontrado */ },
+        _ => return HttpResponse::BadRequest().body("Item no encontrado"),
+    }
+
+    // Guardar la imagen
     let images_dir = Path::new("images");
     if !images_dir.exists() {
         if let Err(_) = fs::create_dir_all(&images_dir) {
             return HttpResponse::InternalServerError().body("Error creando directorio");
         }
     }
-    // Guardar el archivo renombrado como objectID.png
-    let file_path = images_dir.join(format!("{}.png", oid));
+    let file_name = format!("{}.png", oid_str);
+    let file_path = images_dir.join(&file_name);
     if let Err(_) = fs::write(&file_path, &file_data) {
         return HttpResponse::InternalServerError().body("Error guardando archivo");
     }
-    HttpResponse::Ok().body("Imagen guardada exitosamente")
+
+    // Actualizar el campo pictureUrl del item
+    if let Err(_) = items_collection.update_one(
+        doc! {"_id": item_obj_id},
+        doc! { "$set": { "pictureUrl": file_name } }
+    ).await {
+        return HttpResponse::InternalServerError().body("Error actualizando item");
+    }
+    
+    HttpResponse::Ok().body("Imagen guardada y item actualizado exitosamente")
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
