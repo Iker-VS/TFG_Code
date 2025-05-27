@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{get, patch, post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpResponse, Responder};
 use futures_util::StreamExt;
 use mongodb::bson::{doc, oid::ObjectId};
 use mongodb::Database;
@@ -200,8 +200,42 @@ pub async fn patch_image_handler(
     HttpResponse::Ok().body("Imagen actualizada exitosamente")
 }
 
+#[delete("/image/{id}")]
+pub async fn delete_image_handler(path: web::Path<String>, db: web::Data<Database>) -> impl Responder {
+    let oid_str = path.into_inner();
+    let item_obj_id = match ObjectId::parse_str(&oid_str) {
+        Ok(oid) => oid,
+        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+    };
+
+    let items_collection = db.collection::<mongodb::bson::Document>("items");
+    let existing_item = match items_collection.find_one(doc! {"_id": item_obj_id.clone()}).await {
+        Ok(Some(doc)) => doc,
+        _ => return HttpResponse::BadRequest().body("Item no encontrado"),
+    };
+
+    // Borrar la imagen anterior si existe
+    if let Some(old_pic) = existing_item.get_str("pictureUrl").ok() {
+        let old_file_path = Path::new("images").join(old_pic);
+        if old_file_path.exists() {
+            let _ = fs::remove_file(old_file_path);
+        }
+    }
+
+    // Actualizar el item dejando a null el campo pictureUrl
+    if let Err(_) = items_collection.update_one(
+        doc! {"_id": item_obj_id},
+        doc! { "$unset": { "pictureUrl": "" } }
+    ).await {
+        return HttpResponse::InternalServerError().body("Error actualizando item");
+    }
+
+    HttpResponse::Ok().body("Imagen eliminada y item actualizado exitosamente")
+}
+
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_image_by_name_handler);
     cfg.service(post_image_handler);
     cfg.service(patch_image_handler);
+    cfg.service(delete_image_handler);
 }
