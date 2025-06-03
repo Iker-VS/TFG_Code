@@ -21,7 +21,8 @@ async fn main() -> std::io::Result<()> {
         let cors = Cors::default()
             .allowed_origin("http://localhost:8081")
             .allow_any_header()
-            .allow_any_method();
+            .allow_any_method()
+            .supports_credentials();
 
         App::new()
             // Se aplica CORS a todas las rutas.
@@ -37,7 +38,7 @@ async fn main() -> std::io::Result<()> {
                     .configure(routes::configure_private_routes),
             )
     })
-    .bind(("127.0.0.1", 8000))?
+    .bind(("172.30.188.140", 8000))?
     .run()
     .await
 }
