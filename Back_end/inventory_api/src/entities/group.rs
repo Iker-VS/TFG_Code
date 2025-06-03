@@ -503,6 +503,81 @@ pub async fn delete_group_handler(
     response
 }
 
+#[delete("/groups/leave/{id}")]
+async fn leave_group_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+    req: HttpRequest,
+) -> impl Responder {
+    // Recuperar claims del token
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+    };
+    // Parsear id del usuario y del grupo
+    let user_id = match ObjectId::parse_str(&claims.sub) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+    };
+    let group_id = match ObjectId::parse_str(&path.into_inner()) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("ID de grupo inválido"),
+    };
+
+    // Obtener colección de userGroup
+    let user_group_collection = db.collection::<UserGroup>("userGroup");
+    let filter = doc! {
+        "groupId": group_id,
+        "userId": user_id
+    };
+    // Verificar que exista la relación
+    if user_group_collection.find_one(filter.clone()).await.unwrap_or(None).is_none() {
+        return HttpResponse::NotFound().body("No eres miembro de este grupo");
+    }
+
+    // Iniciar transacción
+    let client = db.client();
+    let mut session = match client.start_session().await {
+        Ok(s) => s,
+        Err(_) => return HttpResponse::BadRequest().body("Error al iniciar la sesión"),
+    };
+    session.start_transaction().await.ok();
+
+    // Eliminar la relación usuario-grupo
+    let delete_result = user_group_collection.delete_one(filter).await;
+    if delete_result.is_err() {
+        session.abort_transaction().await.ok();
+        return HttpResponse::BadRequest().body("Error al salir del grupo");
+    }
+
+    // Decrementar userCount en el grupo
+    let group_collection = db.collection::<Group>("groups");
+    let update_result = group_collection.update_one(
+        doc! {"_id": group_id},
+        doc! {"$inc": {"userCount": -1}}
+    ).await;
+    if update_result.is_err() {
+        session.abort_transaction().await.ok();
+        return HttpResponse::BadRequest().body("Error al actualizar el contador de usuarios");
+    }
+
+    // Obtener grupo actualizado
+    let updated_group = group_collection.find_one(doc! {"_id": group_id}).await.unwrap_or(None);
+    if let Some(group) = updated_group {
+        if group.user_count <= 1 { // antes de la actualización era 1 o 0
+            // Eliminar el grupo si ya no hay usuarios
+            let del_grp = group_collection.delete_one(doc! {"_id": group_id}).await;
+            if del_grp.is_err() {
+                session.abort_transaction().await.ok();
+                return HttpResponse::BadRequest().body("Error al eliminar el grupo");
+            }
+            session.commit_transaction().await.ok();
+            return HttpResponse::Ok().body("Has salido del grupo y el grupo ha sido eliminado por no tener miembros");
+        }
+    }
+    session.commit_transaction().await.ok();
+    HttpResponse::Ok().body("Has salido del grupo exitosamente")
+}
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_group_handler)
@@ -511,5 +586,6 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         .service(create_group_handler)
         .service(patch_group_handler)
         .service(delete_group_handler)
-        .service(join_group_handler); 
+        .service(join_group_handler)
+        .service(leave_group_handler);
 }

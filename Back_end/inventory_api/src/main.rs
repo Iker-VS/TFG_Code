@@ -1,4 +1,5 @@
 use actix_web::{web, App, HttpServer};
+use actix_cors::Cors; // <-- Asegúrate de agregar esta importación
 use middleware::auth::AuthMiddleware;
 
 mod db;
@@ -16,11 +17,20 @@ async fn main() -> std::io::Result<()> {
 
     // Configura el servidor HTTP y define las rutas.
     HttpServer::new(move || {
+        // Configura el CORS para permitir el origen http://localhost:8081
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:8081")
+            .allow_any_header()
+            .allow_any_method();
+
         App::new()
+            // Se aplica CORS a todas las rutas.
+            .wrap(cors)
             // Se inyecta la base de datos como estado compartido en la app.
             .app_data(web::Data::new(database.clone()))
-            // Se configuran las rutas definidas en el módulo routes.
+            // Rutas públicas.
             .service(web::scope("/public").configure(routes::configure_public_routes))
+            // Rutas privadas protegidas con auth middleware.
             .service(
                 web::scope("/private")
                     .wrap(AuthMiddleware)
