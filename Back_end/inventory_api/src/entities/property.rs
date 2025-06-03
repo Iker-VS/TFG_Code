@@ -117,12 +117,12 @@ async fn get_properties_from_group_handler(
         .await
     {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     let properties: Vec<Property> = match cursor.try_collect().await {
         Ok(props) => props,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     HttpResponse::Ok().json(properties)
@@ -184,7 +184,7 @@ async fn create_property_handler(
     let collection = db.collection::<Property>("properties");
     match collection.insert_one(property).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -264,7 +264,7 @@ async fn patch_property_handler(
     {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Propiedad actualizada"),
         Ok(_) => HttpResponse::NotFound().body("Propiedad no encontrada"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -278,11 +278,11 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
 
     let zone_cursor = match zone_collection.find(doc! {"propertyId":obj_id}).await {
         Ok(zones) => zones,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     for zone in zones {
         let id = match zone.id {
@@ -297,7 +297,7 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
 
     match property_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(_) => HttpResponse::Ok().body("Propiedad Eliminada"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -309,7 +309,7 @@ async fn delete_property_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = delete_property(&db, path.into_inner()).await;

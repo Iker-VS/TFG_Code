@@ -32,11 +32,11 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let user_groups: Vec<UserGroup> = match cursor.try_collect().await {
         Ok(users_groups) => users_groups,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     HttpResponse::Ok().json(user_groups)
 }
@@ -78,7 +78,7 @@ async fn get_user_group_id_handler(
     {
         Ok(Some(user_group)) => HttpResponse::Ok().json(user_group.id.unwrap()),
         Ok(None) => HttpResponse::NotFound().body("No se encontró registro para el user-group"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -94,11 +94,11 @@ async fn get_users_from_group_handler(
     };
     let user_group_cursor = match user_group_collection.find(doc! {"groupId":obj_id}).await {
         Ok(cursor_user_group) => cursor_user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let user_group: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(users) => users,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     let users_id: Vec<ObjectId> = user_group.iter().map(|u| u.user_id).collect();
@@ -109,7 +109,7 @@ async fn get_users_from_group_handler(
             Ok(Some(user)) => users.push(user),
             Ok(None) => continue,
             Err(_) => {
-                return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente")
+                return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
             }
         }
     }
@@ -141,12 +141,12 @@ async fn get_groups_from_user_handler(
 
     let user_group_cursor = match user_group_collection.find(doc! {"userId": user_id}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     let user_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(groups) => groups,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
@@ -157,7 +157,7 @@ async fn get_groups_from_user_handler(
             Ok(Some(group)) => groups.push(group),
             Ok(None) => continue,
             Err(_) => {
-                return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente")
+                return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
             }
         }
     }
@@ -178,7 +178,7 @@ async fn create_user_group_handler(
     user_group.id = None;
     match collection.insert_one(user_group).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 // seguramente no se use con opción de borrar
@@ -207,7 +207,7 @@ async fn patch_user_group_handler(
             HttpResponse::Ok().body("grupo usuario actualizado")
         }
         Ok(_) => HttpResponse::NotFound().body("Grupo usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -219,7 +219,7 @@ async fn delete_user_group_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     session.start_transaction().await.ok();
     let response = delete_user_group(&db, path.into_inner()).await;
@@ -244,7 +244,7 @@ pub async fn delete_user_group(db: &Database, user_group_id: String) -> HttpResp
             HttpResponse::Ok().body("grupo usuario eliminado")
         }
         Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 

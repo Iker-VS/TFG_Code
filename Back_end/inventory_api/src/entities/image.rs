@@ -114,7 +114,7 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
         return HttpResponse::InternalServerError().body("Error actualizando item");
     }
 
-    HttpResponse::Ok().body("Imagen guardada y item actualizado exitosamente")
+    HttpResponse::Ok().body("Imagen guardada")
 }
 
 #[patch("/image/{id}")]
@@ -196,7 +196,7 @@ pub async fn patch_image_handler(
         return HttpResponse::InternalServerError().body("Error actualizando item");
     }
 
-    HttpResponse::Ok().body("Imagen actualizada exitosamente")
+    HttpResponse::Ok().body("Imagen actualizada")
 }
 
 #[delete("/image/{id}")]
@@ -229,7 +229,7 @@ pub async fn delete_image_handler(path: web::Path<String>, db: web::Data<Databas
         return HttpResponse::InternalServerError().body("Error actualizando item");
     }
 
-    HttpResponse::Ok().body("Imagen eliminada y item actualizado exitosamente")
+    HttpResponse::Ok().body("Imagen eliminada")
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {

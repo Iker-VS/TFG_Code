@@ -42,11 +42,11 @@ async fn get_logs_handler(db: web::Data<Database>, rep: HttpRequest) -> impl Res
     let collection = db.collection::<Log>("logs");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let logs: Vec<Log> = match cursor.try_collect().await {
         Ok(logs) => logs,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     HttpResponse::Ok().json(logs)
 }
@@ -79,7 +79,7 @@ async fn create_log_handler(db: web::Data<Database>, new_log: web::Json<Log>,rep
     log.time = DateTime::now();
     match collection.insert_one(log).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -109,7 +109,7 @@ async fn patch_log_handler(
     {
         Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("registro actualizado"),
         Ok(_) => HttpResponse::NotFound().body("registro no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -126,7 +126,7 @@ async fn delete_log_handler(db: web::Data<Database>, path: web::Path<String>,rep
     match collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("registro eliminado"),
         Ok(_) => HttpResponse::NotFound().body("registro no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 

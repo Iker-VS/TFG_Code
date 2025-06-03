@@ -65,11 +65,11 @@ async fn get_users_handler(db: web::Data<Database>, req: HttpRequest) -> impl Re
     let collection = db.collection::<User>("users");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let users: Vec<User> = match cursor.try_collect().await {
         Ok(users) => users,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     HttpResponse::Ok().json(users)
 }
@@ -93,7 +93,7 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>, req:
     match collection.find_one(doc! {"_id": obj_id}).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
         Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -114,7 +114,7 @@ async fn get_my_user_handler(db: web::Data<Database>, req: HttpRequest) -> impl 
     match collection.find_one(doc! {"_id": obj_id}).await {
         Ok(Some(user)) => HttpResponse::Ok().json(user),
         Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -346,11 +346,11 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
 
     let user_group_cursor = match user_group_collection.find(doc! {"userId":obj_id}).await {
         Ok(user_group) => user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(user_group) => user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
     for user_group in users_groups {
         let id = match user_group.id {
@@ -367,7 +367,7 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
     match item_collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("Usuario eliminado"),
         Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     }
 }
 
@@ -391,7 +391,7 @@ async fn delete_user_admin_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     session.start_transaction().await.ok();
@@ -418,7 +418,7 @@ async fn delete_user_me_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, intentelo nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
     };
 
     session.start_transaction().await.ok();
