@@ -1,7 +1,6 @@
 use actix_web::web;
 
-use crate::entities::{group, image, item, log, property, user, user_group, zone};
-use crate::entities::search;
+use crate::entities::{group, image, item, log, property, user, user_group, zone,search};
 
 pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     group::configure_routes(cfg);
