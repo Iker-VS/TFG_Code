@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::zone::{delete_zone, Zone};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Property {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
