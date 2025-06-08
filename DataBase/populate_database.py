@@ -114,19 +114,24 @@ def create_zones(properties, users):
     zones = []
     for prop in properties:
         count = random.randint(*ZONES_PER_PROPERTY)
-        parent = None
+        property_zones = []  # zonas ya creadas para esta propiedad
         for _ in range(count):
+            # Si existen zonas previas para esta propiedad, elegir aleatoriamente una de ellas (80% de probabilidad).
+            # En caso contrario, o si no se selecciona ninguna, usar el id de la propiedad.
+            if property_zones and random.random() < 0.8:
+                parent_zone_id = random.choice(property_zones)["_id"]
+            else:
+                parent_zone_id = prop["_id"]
             zone = {
                 "name": f"Zona {fake.word().capitalize()}",
                 "propertyId": prop["_id"],
-                **({"userId": random.choice(users)["_id"]} if random.random() < 0.5 else {}),
-                **({"parentZoneId": parent["_id"]} if parent and random.random() < 0.3 else {})
+                "parentZoneId": parent_zone_id,
+                **({"userId": random.choice(users)["_id"]} if random.random() < 0.5 else {})
             }
             res = db.zones.insert_one(zone)
             zone_record = {**zone, "_id": res.inserted_id}
             zones.append(zone_record)
-            if random.random() < 0.3:
-                parent = zone_record
+            property_zones.append(zone_record)
     print(f"{len(zones)} zonas creadas.")
     return zones
 
@@ -134,6 +139,9 @@ def create_zones(properties, users):
 def create_items(zones, groups):
     items = []
     for zone in zones:
+        # Si el parentZoneId es igual al propertyId, la zona es de nivel 1, se omite
+        if zone["parentZoneId"] == zone["propertyId"]:
+            continue
         prop = db.properties.find_one({"_id": zone["propertyId"]})
         group = db.groups.find_one({"_id": prop["groupId"]})
         for _ in range(random.randint(*ITEMS_PER_ZONE)):
