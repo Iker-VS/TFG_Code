@@ -82,45 +82,47 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 #[get("/zones/parent/{id}")]
 async fn get_zone_from_parent_handler(
     db: web::Data<Database>,
-    path: web::Path<String>,
-    req: HttpRequest,
+    path: web::Path<String>
 ) -> impl Responder {
-    // Recupera las claims ya inyectadas por el middleware
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
-    };
 
+    // Parsear parent_id desde la ruta
     let parent_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
         Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
     };
 
-    let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
-        Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("Token user ID inválido"),
-    };
-
-    // Filtro: parentZoneId igual al proporcionado y userId no existente o igual al del token.
+    // Buscar todas las zonas cuyo parentZoneId sea igual a parent_id
     let zone_collection = db.collection::<Zone>("zones");
-    let zone_cursor = match zone_collection
-        .find(doc! {
-            "parentZoneId": parent_id,
-            "$or": [
-                { "userId": { "$exists": false } },            
-                { "userId": token_user_obj_id }
-            ]
-        })
-        .await
-    {
+    let zone_cursor = match zone_collection.find(doc! { "parentZoneId": parent_id }).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error al obtener zonas"),
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => return HttpResponse::BadRequest().body("Error al procesar zonas"),
     };
-    HttpResponse::Ok().json(zones)
+
+    // Obtener los ítems de todas las zonas encontradas
+    let child_zone_ids: Vec<_> = zones.iter().filter_map(|z| z.id.clone()).collect();
+    let items: Vec<crate::entities::item::Item> = if child_zone_ids.is_empty() {
+        vec![]
+    } else {
+        let items_collection = db.collection::<crate::entities::item::Item>("items");
+        let items_cursor = match items_collection.find(doc! { "zoneId": { "$in": child_zone_ids } }).await {
+            Ok(cursor) => cursor,
+            Err(_) => return HttpResponse::BadRequest().body("Error al obtener ítems"),
+        };
+        match items_cursor.try_collect().await {
+            Ok(items) => items,
+            Err(_) => return HttpResponse::BadRequest().body("Error al procesar ítems"),
+        }
+    };
+
+    // Retornar zonas e ítems en la respuesta
+    HttpResponse::Ok().json(serde_json::json!({
+        "zones": zones,
+        "items": items
+    }))
 }
 
 #[post("/zones")]

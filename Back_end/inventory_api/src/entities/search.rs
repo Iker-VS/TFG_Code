@@ -25,16 +25,8 @@ struct SearchResponse {
 #[get("/search/{name}")]
 pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: web::Path<String>) -> impl Responder {
     let search_str = name.into_inner().to_lowercase();
-
-    // Obtener el id del usuario desde el token
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
-    };
-    let user_id = match ObjectId::parse_str(&claims.sub) {
-        Ok(uid) => uid,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
-    };
+    let claims = req.extensions().get::<crate::middleware::auth::Claims>().unwrap().clone();
+    let user_id = ObjectId::parse_str(&claims.sub).unwrap();
 
     let mut groups_res = Vec::new();
     let mut properties_res = Vec::new();
