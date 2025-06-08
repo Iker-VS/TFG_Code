@@ -131,11 +131,13 @@ async fn create_zone_handler(
     new_zone: web::Json<serde_json::Value>,
     req: HttpRequest,
 ) -> impl Responder {
+    // Extraer claims del request
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
         None => return HttpResponse::Unauthorized().body("Token no encontrado"),
     };
 
+    // Extraer "name"
     let name = match new_zone.get("name") {
         Some(value) => match value.as_str() {
             Some(s) => s.to_string(),
@@ -144,26 +146,34 @@ async fn create_zone_handler(
         None => return HttpResponse::BadRequest().body("El nombre es requerido"),
     };
 
-    let property_id = match new_zone.get("propertyId") {
+    // Extraer "parentZoneId" (obligatorio)
+    let parent_zone_str = match new_zone.get("parentZoneId") {
         Some(value) => match value.as_str() {
-            Some(id) => match ObjectId::parse_str(id) {
-                Ok(obj_id) => obj_id,
-                Err(_) => return HttpResponse::BadRequest().body("propertyId inválido"),
-            },
-            None => return HttpResponse::BadRequest().body("propertyId debe ser una cadena de texto"),
+            Some(s) => s.to_string(),
+            None => return HttpResponse::BadRequest().body("parentZoneId debe ser una cadena de texto"),
         },
-        None => return HttpResponse::BadRequest().body("propertyId es requerido"),
+        None => return HttpResponse::BadRequest().body("parentZoneId es requerido"),
+    };
+    let parent_zone_id = match ObjectId::parse_str(&parent_zone_str) {
+        Ok(id) => id,
+        Err(_) => return HttpResponse::BadRequest().body("parentZoneId inválido"),
     };
 
-    let parent_zone_id = match new_zone.get("parentZoneId") {
-        Some(value) => match value.as_str() {
-            Some(id) => Some(match ObjectId::parse_str(id) {
-                Ok(obj_id) => obj_id,
-                Err(_) => return HttpResponse::BadRequest().body("parentZoneId inválido"),
-            }),
-            None => None,
-        },
-        None => None,
+    // Determinar property_id:
+    // Primero, buscar en la colección properties
+    let property_collection = db.collection::<crate::entities::property::Property>("properties");
+    let property = property_collection.find_one(doc! {"_id": parent_zone_id.clone()}).await.ok().flatten();
+    let property_id = if let Some(_) = property {
+        // Si se encontró, se usa parent_zone_id como property_id
+        parent_zone_id.clone()
+    } else {
+        // Sino, buscar en la colección zones
+        let zone_collection = db.collection::<Zone>("zones");
+        if let Ok(Some(zone)) = zone_collection.find_one(doc! {"_id": parent_zone_id.clone()}).await {
+            zone.property_id
+        } else {
+            return HttpResponse::BadRequest().body("parentZoneId no corresponde a propiedad ni zona válida");
+        }
     };
 
     let is_private = new_zone.get("private")
@@ -183,14 +193,14 @@ async fn create_zone_handler(
         id: None,
         name,
         property_id,
-        parent_zone_id,
+        parent_zone_id: Some(parent_zone_id),
         user_id,
     };
 
     let collection = db.collection::<Zone>("zones");
     match collection.insert_one(zone).await {
         Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente"),
     }
 }
 
