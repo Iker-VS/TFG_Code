@@ -8,6 +8,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::user_group::UserGroup;
+use crate::log::write_log;
 
 use super::{
     property::{delete_property, Property},
@@ -22,6 +23,7 @@ pub struct CreateGroup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+
 pub struct Group {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
@@ -79,46 +81,64 @@ async fn generate_unique_group_code(collection: &mongodb::Collection<Group>) -> 
 
 #[get("/groups")]
 async fn get_groups_handler(db: web::Data<Database>, req: HttpRequest) -> impl Responder {
-    // Recupera las claims ya inyectadas por el middleware
     let claims = match req
         .extensions()
         .get::<crate::middleware::auth::Claims>()
         .cloned()
     {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /groups - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-
-    // Solo un admin puede obtener todos los grupos
     if claims.role != "admin" {
+        write_log(&format!("GET /groups - Acceso denegado para usuario {}", claims.sub)).ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado");
     }
-
     let collection = db.collection::<Group>("groups");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log(&format!("GET /groups - Error en find para usuario {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
-
     let groups: Vec<Group> = match cursor.try_collect().await {
         Ok(groups) => groups,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log(&format!("GET /groups - Error en try_collect para usuario {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
-
+    write_log(&format!("GET /groups - usuario {} obtuvo {} grupos", claims.sub, groups.len())).ok();
     HttpResponse::Ok().json(groups)
 }
 
 #[get("/groups/{id}")]
 async fn get_group_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Group>("groups");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+    let id_str = path.into_inner();
+    let obj_id = match ObjectId::parse_str(&id_str) {
         Ok(obj_id) => obj_id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log(&format!("GET /groups/{{id}} - ID inválido: {}", id_str)).ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
-        Ok(Some(group)) => return HttpResponse::Ok().json(group),
-        Ok(None) => return HttpResponse::NotFound().body("Grupo no encontrado"),
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+        Ok(Some(group)) => {
+            write_log(&format!("GET /groups/{{id}} - Grupo encontrado: {:?}", group)).ok();
+            HttpResponse::Ok().json(group)
+        },
+        Ok(None) => {
+            write_log(&format!("GET /groups/{{id}} - Grupo no encontrado: {}", obj_id)).ok();
+            HttpResponse::NotFound().body("Grupo no encontrado")
+        },
+        Err(e) => {
+            write_log(&format!("GET /groups/{{id}} - Error: {}", e)).ok();
+            HttpResponse::BadRequest().body(e.to_string())
+        },
     }
 }
 #[get("/groups/code/{code}")]
@@ -128,10 +148,19 @@ async fn get_group_by_code_handler(
 ) -> impl Responder {
     let collection = db.collection::<Group>("groups");
     let group_code = path.into_inner();
-    match collection.find_one(doc! {"groupCode": group_code}).await {
-        Ok(Some(group)) => HttpResponse::Ok().json(group),
-        Ok(None) => HttpResponse::NotFound().body("Grupo no encontrado"),
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+    match collection.find_one(doc! {"groupCode": group_code.clone()}).await {
+        Ok(Some(group)) => {
+            write_log(&format!("GET /groups/code/{{code}} - Grupo encontrado: code={:?}, grupo={:?}", group_code, group)).ok();
+            HttpResponse::Ok().json(group)
+        },
+        Ok(None) => {
+            write_log(&format!("GET /groups/code/{{code}} - Grupo no encontrado: code={:?}", group_code)).ok();
+            HttpResponse::NotFound().body("Grupo no encontrado")
+        },
+        Err(e) => {
+            write_log(&format!("GET /groups/code/{{code}} - Error: {}", e)).ok();
+            HttpResponse::BadRequest().body(e.to_string())
+        },
     }
 }
 
@@ -141,69 +170,68 @@ async fn create_group_handler(
     new_group: web::Json<CreateGroup>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Obtener claims del token
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("POST /groups - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-
     let user_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        Err(_) => {
+            write_log(&format!("POST /groups - ID de usuario inválido: {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("ID de usuario inválido");
+        },
     };
-
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("POST /groups - Error al iniciar sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
-
     session.start_transaction().await.ok();
-
     let collection = db.collection::<Group>("groups");
     let group_code = generate_unique_group_code(&collection).await;
-
     let group = Group {
         id: None,
         name: new_group.name.clone(),
         user_max: new_group.user_max,
         user_count: 1,
-        group_code,
+        group_code: group_code.clone(),
         tags: None,
     };
-
     let group_result = match collection.insert_one(group).await {
-    // Insertar usando el documento BSON explícito
-
         Ok(result) => result,
         Err(_) => {
             session.abort_transaction().await.ok();
+            write_log(&format!("POST /groups - Error al insertar grupo para usuario {}", user_id)).ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
         }
     };
-
     let group_id = match group_result.inserted_id.as_object_id() {
         Some(id) => id,
         None => {
             session.abort_transaction().await.ok();
+            write_log("POST /groups - Error al obtener ID del grupo").ok();
             return HttpResponse::BadRequest().body("Error al obtener ID del grupo");
         }
     };
-
-    // Crear la relación usuario-grupo
     let user_group = UserGroup {
         id: None,
         group_id,
         user_id,
     };
-
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     if let Err(_) = user_group_collection.insert_one(&user_group).await {
         session.abort_transaction().await.ok();
+        write_log(&format!("POST /groups - Error al crear relación usuario-grupo para usuario {} y grupo {}", user_id, group_id)).ok();
         return HttpResponse::BadRequest().body("Error al crear la relación usuario-grupo");
     }
-
     session.commit_transaction().await.ok();
+    write_log(&format!("POST /groups - Grupo creado correctamente: id={}, code={}, usuario={}", group_id, group_code, user_id)).ok();
     HttpResponse::Ok().json(group_result.inserted_id)
 }
 
@@ -214,28 +242,33 @@ async fn join_group_handler(
     path: web::Path<String>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Obtener claims del token
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("POST /groups/join/{code} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-
     let user_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        Err(_) => {
+            write_log(&format!("POST /groups/join/{{code}} - ID de usuario inválido: {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("ID de usuario inválido");
+        },
     };
-
     let group_code = path.into_inner();
     let group_collection = db.collection::<Group>("groups");
-    
-    // Buscar el grupo por código
     let group = match group_collection.find_one(doc! {"groupCode": &group_code}).await {
         Ok(Some(group)) => group,
-        Ok(None) => return HttpResponse::NotFound().body("Grupo no encontrado"),
-        Err(_) => return HttpResponse::InternalServerError().body("Error al buscar el grupo"),
+        Ok(None) => {
+            write_log(&format!("POST /groups/join/{{code}} - Grupo no encontrado: {}", group_code)).ok();
+            return HttpResponse::NotFound().body("Grupo no encontrado");
+        },
+        Err(_) => {
+            write_log(&format!("POST /groups/join/{{code}} - Error al buscar grupo: {}", group_code)).ok();
+            return HttpResponse::InternalServerError().body("Error al buscar el grupo");
+        },
     };
-
-    // Verificar si el usuario ya está en el grupo
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     if let Ok(Some(_)) = user_group_collection
         .find_one(doc! {
@@ -244,37 +277,34 @@ async fn join_group_handler(
         })
         .await
     {
+        write_log(&format!("POST /groups/join/{{code}} - Usuario {} ya es miembro del grupo {}", user_id, group_code)).ok();
         return HttpResponse::BadRequest().body("Ya eres miembro de este grupo");
     }
-
-    // Verificar límite de usuarios
     if let Some(max_users) = group.user_max {
         if group.user_count >= max_users {
+            write_log(&format!("POST /groups/join/{{code}} - Grupo {} lleno", group_code)).ok();
             return HttpResponse::BadRequest().body("El grupo ha alcanzado su límite de usuarios");
         }
     }
-
-    // Iniciar transacción
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::InternalServerError().body("Error al iniciar la transacción"),
+        Err(_) => {
+            write_log("POST /groups/join/{code} - Error al iniciar la transacción").ok();
+            return HttpResponse::InternalServerError().body("Error al iniciar la transacción");
+        },
     };
     session.start_transaction().await.ok();
-
-    // Crear relación usuario-grupo
     let user_group = UserGroup {
         id: None,
         group_id: group.id.unwrap(),
         user_id,
     };
-
     if let Err(_) = user_group_collection.insert_one(&user_group).await {
         session.abort_transaction().await.ok();
+        write_log(&format!("POST /groups/join/{{code}} - Error al unirse al grupo {} para usuario {}", group_code, user_id)).ok();
         return HttpResponse::InternalServerError().body("Error al unirse al grupo");
     }
-
-    // Incrementar user_count
     match group_collection
         .update_one(
             doc! {"_id": group.id.unwrap()},
@@ -284,10 +314,12 @@ async fn join_group_handler(
     {
         Ok(_) => {
             session.commit_transaction().await.ok();
+            write_log(&format!("POST /groups/join/{{code}} - Usuario {} se unió al grupo {}", user_id, group_code)).ok();
             HttpResponse::Ok().body("Te has unido al grupo exitosamente")
         }
         Err(_) => {
             session.abort_transaction().await.ok();
+            write_log(&format!("POST /groups/join/{{code}} - Error al actualizar contador de usuarios para grupo {}", group_code)).ok();
             HttpResponse::InternalServerError().body("Error al actualizar el contador de usuarios")
         }
     }
@@ -389,42 +421,53 @@ async fn patch_group_handler(
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("PATCH /groups/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(group_id) => group_id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("PATCH /groups/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
-
     if claims.role != "admin" {
         let user_group_collection = db.collection::<UserGroup>("userGroup");
         let user_group = match user_group_collection.find_one(doc! {"groupId": &group_id}).await {
             Ok(Some(user_group)) => user_group,
-            Ok(None) => return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo"),
-            Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+            Ok(None) => {
+                write_log(&format!("PATCH /groups/{{id}} - Usuario {} no pertenece al grupo {}", claims.sub, group_id)).ok();
+                return HttpResponse::NotFound().body("El Usuario no pertenece a este grupo");
+            },
+            Err(_) => {
+                write_log(&format!("PATCH /groups/{{id}} - Error inesperado para usuario {}", claims.sub)).ok();
+                return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+            },
         };
-
         if claims.sub != user_group.user_id.to_string() || group_id != user_group.group_id {
+            write_log(&format!("PATCH /groups/{{id}} - Acceso no autorizado para usuario {}", claims.sub)).ok();
             return HttpResponse::Unauthorized().body("Acceso no autorizado");
         }
     }
-
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("PATCH /groups/{id} - Error al iniciar sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     session.start_transaction().await.ok();
-
     let response = patch_group(&db, group_id.to_string(), updated_group).await;
-
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log(&format!("PATCH /groups/{{id}} - Grupo {} actualizado por usuario {}", group_id, claims.sub)).ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log(&format!("PATCH /groups/{{id}} - Error al actualizar grupo {} por usuario {}", group_id, claims.sub)).ok();
     }
-
     response
 }
 
@@ -486,20 +529,24 @@ pub async fn delete_group_handler(
     db: web::Data<Database>,
     path: web::Path<String>,
 ) -> impl Responder {
+    let group_id = path.into_inner();
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /groups/{id} - Error al iniciar sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     session.start_transaction().await.ok();
-    let response = delete_group(&db, path.into_inner()).await;
-
+    let response = delete_group(&db, group_id.clone()).await;
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log(&format!("DELETE /groups/{{id}} - Grupo {} eliminado correctamente", group_id)).ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log(&format!("DELETE /groups/{{id}} - Error al eliminar grupo {}", group_id)).ok();
     }
-
     response
 }
 
@@ -509,48 +556,51 @@ async fn leave_group_handler(
     path: web::Path<String>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Recuperar claims del token
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("DELETE /groups/leave/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-    // Parsear id del usuario y del grupo
     let user_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        Err(_) => {
+            write_log(&format!("DELETE /groups/leave/{{id}} - ID de usuario inválido: {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("ID de usuario inválido");
+        },
     };
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de grupo inválido"),
+        Err(_) => {
+            write_log("DELETE /groups/leave/{id} - ID de grupo inválido").ok();
+            return HttpResponse::BadRequest().body("ID de grupo inválido");
+        },
     };
-
-    // Obtener colección de userGroup
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     let filter = doc! {
         "groupId": group_id,
         "userId": user_id
     };
-    // Verificar que exista la relación
     if user_group_collection.find_one(filter.clone()).await.unwrap_or(None).is_none() {
+        write_log(&format!("DELETE /groups/leave/{{id}} - Usuario {} no es miembro del grupo {}", user_id, group_id)).ok();
         return HttpResponse::NotFound().body("No eres miembro de este grupo");
     }
-
-    // Iniciar transacción
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error al iniciar la sesión"),
+        Err(_) => {
+            write_log("DELETE /groups/leave/{id} - Error al iniciar la sesión").ok();
+            return HttpResponse::BadRequest().body("Error al iniciar la sesión");
+        },
     };
     session.start_transaction().await.ok();
-
-    // Eliminar la relación usuario-grupo
     let delete_result = user_group_collection.delete_one(filter).await;
     if delete_result.is_err() {
         session.abort_transaction().await.ok();
+        write_log(&format!("DELETE /groups/leave/{{id}} - Error al salir del grupo {} para usuario {}", group_id, user_id)).ok();
         return HttpResponse::BadRequest().body("Error al salir del grupo");
     }
-
-    // Decrementar userCount en el grupo
     let group_collection = db.collection::<Group>("groups");
     let update_result = group_collection.update_one(
         doc! {"_id": group_id},
@@ -558,24 +608,25 @@ async fn leave_group_handler(
     ).await;
     if update_result.is_err() {
         session.abort_transaction().await.ok();
+        write_log(&format!("DELETE /groups/leave/{{id}} - Error al actualizar contador de usuarios para grupo {}", group_id)).ok();
         return HttpResponse::BadRequest().body("Error al actualizar el contador de usuarios");
     }
-
-    // Obtener grupo actualizado
     let updated_group = group_collection.find_one(doc! {"_id": group_id}).await.unwrap_or(None);
     if let Some(group) = updated_group {
-        if group.user_count <= 1 { // antes de la actualización era 1 o 0
-            // Eliminar el grupo si ya no hay usuarios
+        if group.user_count <= 1 {
             let del_grp = group_collection.delete_one(doc! {"_id": group_id}).await;
             if del_grp.is_err() {
                 session.abort_transaction().await.ok();
+                write_log(&format!("DELETE /groups/leave/{{id}} - Error al eliminar grupo {}", group_id)).ok();
                 return HttpResponse::BadRequest().body("Error al eliminar el grupo");
             }
             session.commit_transaction().await.ok();
+            write_log(&format!("DELETE /groups/leave/{{id}} - Usuario {} salió y grupo {} eliminado por no tener miembros", user_id, group_id)).ok();
             return HttpResponse::Ok().body("Has salido del grupo y el grupo ha sido eliminado por no tener miembros");
         }
     }
     session.commit_transaction().await.ok();
+    write_log(&format!("DELETE /groups/leave/{{id}} - Usuario {} salió del grupo {} exitosamente", user_id, group_id)).ok();
     HttpResponse::Ok().body("Has salido del grupo exitosamente")
 }
 

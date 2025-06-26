@@ -5,6 +5,7 @@ use mongodb::{
 };
 use futures_util::stream::TryStreamExt;
 use serde::Serialize;
+use crate::log::write_log;
 
 use crate::entities::{
     group::Group,
@@ -39,11 +40,17 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
     let filter = doc! { "userId": user_id.clone() };
     let usergroups_cursor = match user_group_coll.find(filter).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            write_log(&format!("GET /search/{{name}} - Error buscando userGroup: {}", e)).ok();
+            return HttpResponse::InternalServerError().body(e.to_string());
+        },
     };
     let user_groups: Vec<UserGroup> = match usergroups_cursor.try_collect().await {
         Ok(ugs) => ugs,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            write_log(&format!("GET /search/{{name}} - Error recogiendo userGroup: {}", e)).ok();
+            return HttpResponse::InternalServerError().body(e.to_string());
+        },
     };
     let group_coll = db.collection::<Group>("groups");
     for ug in user_groups {
@@ -140,6 +147,8 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
         items: items_res,
     };
 
+    write_log(&format!("GET /search/{{name}} - Búsqueda realizada: grupos={}, propiedades={}, zonas={}, items={}",
+        response.groups.len(), response.properties.len(), response.zones.len(), response.items.len())).ok();
     HttpResponse::Ok().json(response)
 }
 

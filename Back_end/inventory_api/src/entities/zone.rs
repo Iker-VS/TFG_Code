@@ -6,6 +6,7 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
+use crate::log::write_log;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Zone {
@@ -45,23 +46,34 @@ async fn get_zones_handler(
     // Recupera las claims inyectadas por el middleware
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /zones - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     // Solo el admin puede obtener todas las zonas
     if claims.role != "admin" {
+        write_log("GET /zones - Acceso no autorizado: se requiere administrador").ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
     }
 
     let collection = db.collection::<Zone>("zones");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /zones - Error buscando zonas").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let zones: Vec<Zone> = match cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /zones - Error recogiendo zonas").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
+    write_log(&format!("GET /zones - {} zonas recuperadas", zones.len())).ok();
     HttpResponse::Ok().json(zones)
 }
 
@@ -70,12 +82,24 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
     let collection = db.collection::<Zone>("zones");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /zones/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
-        Ok(Some(zone)) => return HttpResponse::Ok().json(zone),
-        Ok(None) => return HttpResponse::NotFound().body("zona no encontrada"),
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+        Ok(Some(zone)) => {
+            write_log("GET /zones/{id} - Zona encontrada").ok();
+            HttpResponse::Ok().json(zone)
+        },
+        Ok(None) => {
+            write_log("GET /zones/{id} - Zona no encontrada").ok();
+            HttpResponse::NotFound().body("zona no encontrada")
+        },
+        Err(e) => {
+            write_log(&format!("GET /zones/{} - Error: {}", obj_id, e)).ok();
+            HttpResponse::BadRequest().body(e.to_string())
+        },
     }
 }
 
@@ -88,18 +112,27 @@ async fn get_zone_from_parent_handler(
     // Parsear parent_id desde la ruta
     let parent_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /zones/parent/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
 
     // Buscar todas las zonas cuyo parentZoneId sea igual a parent_id
     let zone_collection = db.collection::<Zone>("zones");
     let zone_cursor = match zone_collection.find(doc! { "parentZoneId": parent_id }).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error al obtener zonas"),
+        Err(_) => {
+            write_log("GET /zones/parent/{id} - Error al obtener zonas").ok();
+            return HttpResponse::BadRequest().body("Error al obtener zonas");
+        },
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
-        Err(_) => return HttpResponse::BadRequest().body("Error al procesar zonas"),
+        Err(_) => {
+            write_log("GET /zones/parent/{id} - Error al procesar zonas").ok();
+            return HttpResponse::BadRequest().body("Error al procesar zonas");
+        },
     };
 
     // Obtener los ítems de todas las zonas encontradas
@@ -110,15 +143,22 @@ async fn get_zone_from_parent_handler(
         let items_collection = db.collection::<crate::entities::item::Item>("items");
         let items_cursor = match items_collection.find(doc! { "zoneId": { "$in": child_zone_ids } }).await {
             Ok(cursor) => cursor,
-            Err(_) => return HttpResponse::BadRequest().body("Error al obtener ítems"),
+            Err(_) => {
+                write_log("GET /zones/parent/{id} - Error al obtener ítems").ok();
+                return HttpResponse::BadRequest().body("Error al obtener ítems");
+            },
         };
         match items_cursor.try_collect().await {
             Ok(items) => items,
-            Err(_) => return HttpResponse::BadRequest().body("Error al procesar ítems"),
+            Err(_) => {
+                write_log("GET /zones/parent/{id} - Error al procesar ítems").ok();
+                return HttpResponse::BadRequest().body("Error al procesar ítems");
+            },
         }
     };
 
     // Retornar zonas e ítems en la respuesta
+    write_log(&format!("GET /zones/parent/{{id}} - {} zonas y {} items recuperados", zones.len(), items.len())).ok();
     HttpResponse::Ok().json(serde_json::json!({
         "zones": zones,
         "items": items
@@ -134,29 +174,47 @@ async fn create_zone_handler(
     // Extraer claims del request
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("POST /zones - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     // Extraer "name"
     let name = match new_zone.get("name") {
         Some(value) => match value.as_str() {
             Some(s) => s.to_string(),
-            None => return HttpResponse::BadRequest().body("El nombre debe ser una cadena de texto"),
+            None => {
+                write_log("POST /zones - El nombre debe ser una cadena de texto").ok();
+                return HttpResponse::BadRequest().body("El nombre debe ser una cadena de texto");
+            },
         },
-        None => return HttpResponse::BadRequest().body("El nombre es requerido"),
+        None => {
+            write_log("POST /zones - El nombre es requerido").ok();
+            return HttpResponse::BadRequest().body("El nombre es requerido");
+        },
     };
 
     // Extraer "parentZoneId" (obligatorio)
     let parent_zone_str = match new_zone.get("parentZoneId") {
         Some(value) => match value.as_str() {
             Some(s) => s.to_string(),
-            None => return HttpResponse::BadRequest().body("parentZoneId debe ser una cadena de texto"),
+            None => {
+                write_log("POST /zones - parentZoneId debe ser una cadena de texto").ok();
+                return HttpResponse::BadRequest().body("parentZoneId debe ser una cadena de texto");
+            },
         },
-        None => return HttpResponse::BadRequest().body("parentZoneId es requerido"),
+        None => {
+            write_log("POST /zones - parentZoneId es requerido").ok();
+            return HttpResponse::BadRequest().body("parentZoneId es requerido");
+        },
     };
     let parent_zone_id = match ObjectId::parse_str(&parent_zone_str) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("parentZoneId inválido"),
+        Err(_) => {
+            write_log("POST /zones - parentZoneId inválido").ok();
+            return HttpResponse::BadRequest().body("parentZoneId inválido");
+        },
     };
 
     // Determinar property_id:
@@ -172,6 +230,7 @@ async fn create_zone_handler(
         if let Ok(Some(zone)) = zone_collection.find_one(doc! {"_id": parent_zone_id.clone()}).await {
             zone.property_id
         } else {
+            write_log("POST /zones - parentZoneId no corresponde a propiedad ni zona válida").ok();
             return HttpResponse::BadRequest().body("parentZoneId no corresponde a propiedad ni zona válida");
         }
     };
@@ -183,7 +242,10 @@ async fn create_zone_handler(
     let user_id = if is_private {
         match ObjectId::parse_str(&claims.sub) {
             Ok(id) => Some(id),
-            Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+            Err(_) => {
+                write_log("POST /zones - ID de usuario inválido").ok();
+                return HttpResponse::BadRequest().body("ID de usuario inválido");
+            },
         }
     } else {
         None
@@ -199,8 +261,14 @@ async fn create_zone_handler(
 
     let collection = db.collection::<Zone>("zones");
     match collection.insert_one(zone).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente"),
+        Ok(result) => {
+            write_log("POST /zones - Zona creada correctamente").ok();
+            HttpResponse::Ok().json(result.inserted_id)
+        },
+        Err(_) => {
+            write_log("POST /zones - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente")
+        },
     }
 }
 
@@ -213,13 +281,19 @@ async fn patch_zones_handler(
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("PATCH /zones/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     let collection = db.collection::<Zone>("zones");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("PATCH /zones/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
 
     let mut set_doc = doc! {};
@@ -229,7 +303,10 @@ async fn patch_zones_handler(
     if let Some(value) = updated_zone.get("name") {
         match value {
             serde_json::Value::String(name) => { set_doc.insert("name", name.clone()); },
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+            _ => {
+                write_log("PATCH /zones/{id} - Valor inválido para 'name'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'name'");
+            },
         }
     }
 
@@ -240,17 +317,24 @@ async fn patch_zones_handler(
                 if *is_private {
                     match ObjectId::parse_str(&claims.sub) {
                         Ok(user_id) => { set_doc.insert("userId", user_id); },
-                        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+                        Err(_) => {
+                            write_log("PATCH /zones/{id} - ID de usuario inválido").ok();
+                            return HttpResponse::BadRequest().body("ID de usuario inválido");
+                        },
                     }
                 } else {
                     unset_doc.insert("userId", "");
                 }
             },
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'private'"),
+            _ => {
+                write_log("PATCH /zones/{id} - Valor inválido para 'private'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'private'");
+            },
         }
     }
 
     if set_doc.is_empty() && unset_doc.is_empty() {
+        write_log("PATCH /zones/{id} - No hay campos para actualizar").ok();
         return HttpResponse::BadRequest().body("No hay campos para actualizar");
     }
 
@@ -263,9 +347,18 @@ async fn patch_zones_handler(
     }
 
     match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Zona actualizada"),
-        Ok(_) => HttpResponse::NotFound().body("Zona no encontrada"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(result) if result.matched_count == 1 => {
+            write_log("PATCH /zones/{id} - Zona actualizada").ok();
+            HttpResponse::Ok().body("Zona actualizada")
+        },
+        Ok(_) => {
+            write_log("PATCH /zones/{id} - Zona no encontrada").ok();
+            HttpResponse::NotFound().body("Zona no encontrada")
+        },
+        Err(_) => {
+            write_log("PATCH /zones/{id} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -274,29 +367,48 @@ pub async fn delete_zone(db: &Database, zone_id: String) -> HttpResponse {
     let item_collection = db.collection::<Item>("items");
     let obj_id = match ObjectId::parse_str(zone_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Id incorrecto").ok();
+            return HttpResponse::BadRequest().body("Id incorrecto");
+        },
     };
     let item_cursor = match item_collection.find(doc! {"zoneId":obj_id}).await {
         Ok(items) => items,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Error buscando items").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let items: Vec<Item> = match item_cursor.try_collect().await {
         Ok(items) => items,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Error recogiendo items").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     for item in items {
         let id = match item.id {
             Some(id) => id,
-            None => return HttpResponse::BadRequest().body("No hay ID"),
+            None => {
+                write_log("DELETE /zones/{id} - Item sin ID").ok();
+                return HttpResponse::BadRequest().body("No hay ID");
+            },
         };
         let res = delete_item(db, id.to_string()).await;
         if !res.status().is_success() {
+            write_log("DELETE /zones/{id} - Error eliminando item asociado").ok();
             return res; // Si falla, detenemos la ejecución y devolvemos el error
         }
     }
     match zone_collection.delete_one(doc! {"_id": obj_id}).await {
-        Ok(_) => HttpResponse::Ok().body("Zona eliminada"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(_) => {
+            write_log("DELETE /zones/{id} - Zona eliminada correctamente").ok();
+            HttpResponse::Ok().body("Zona eliminada")
+        },
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Error eliminando zona").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -305,15 +417,20 @@ async fn delete_zone_handler(db: web::Data<Database>, path: web::Path<String>) -
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Error iniciando sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     session.start_transaction().await.ok();
     let response = delete_zone(&db, path.into_inner()).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log("DELETE /zones/{id} - Transacción confirmada").ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log("DELETE /zones/{id} - Transacción abortada").ok();
     }
 
     response

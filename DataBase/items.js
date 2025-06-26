@@ -17,7 +17,7 @@ db.createCollection("items", {
         },
         pictureUrl: {
           bsonType: "string",
-          description: "URL de la imagen del objeto (almacenada en la nube)"
+          description: "URL de la imagen del objeto"
         },
         zoneId: {
           bsonType: "objectId",

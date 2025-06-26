@@ -26,4 +26,5 @@ Cargo.lock
 /target/
 
 .env
-**/images/
+/images/
+/logs/

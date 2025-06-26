@@ -12,6 +12,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256}; // Nuevo import para cifrado
+use crate::log::write_log;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct User {
@@ -53,11 +54,15 @@ async fn get_users_handler(db: web::Data<Database>, req: HttpRequest) -> impl Re
         .cloned()
     {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /users - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     // Solo el admin puede obtener todos los usuarios
     if claims.role != "admin" {
+        write_log("GET /users - Acceso no autorizado: se requiere administrador").ok();
         return HttpResponse::Unauthorized()
             .body("Acceso no autorizado: se requiere administrador");
     }
@@ -65,12 +70,19 @@ async fn get_users_handler(db: web::Data<Database>, req: HttpRequest) -> impl Re
     let collection = db.collection::<User>("users");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /users - Error buscando usuarios").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let users: Vec<User> = match cursor.try_collect().await {
         Ok(users) => users,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /users - Error recogiendo usuarios").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
+    write_log(&format!("GET /users - {} usuarios recuperados", users.len())).ok();
     HttpResponse::Ok().json(users)
 }
 
@@ -79,21 +91,37 @@ async fn get_user_handler(db: web::Data<Database>, path: web::Path<String>, req:
     // Retrieve claims from the middleware and ensure admin access
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /users/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
     if claims.role != "admin" {
+        write_log("GET /users/{id} - Acceso no autorizado: se requiere administrador").ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
     }
     // ...existing code...
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /users/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.find_one(doc! {"_id": obj_id}).await {
-        Ok(Some(user)) => HttpResponse::Ok().json(user),
-        Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(Some(user)) => {
+            write_log("GET /users/{id} - Usuario encontrado").ok();
+            HttpResponse::Ok().json(user)
+        },
+        Ok(None) => {
+            write_log("GET /users/{id} - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("GET /users/{id} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -102,19 +130,34 @@ async fn get_my_user_handler(db: web::Data<Database>, req: HttpRequest) -> impl 
     // Retrieve claims from the token
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /users/me - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
     // Extract user id from claims and parse as ObjectId
     let obj_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /users/me - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     // Query the "users" collection for the user's document
     let collection = db.collection::<User>("users");
     match collection.find_one(doc! {"_id": obj_id}).await {
-        Ok(Some(user)) => HttpResponse::Ok().json(user),
-        Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(Some(user)) => {
+            write_log("GET /users/me - Usuario encontrado").ok();
+            HttpResponse::Ok().json(user)
+        },
+        Ok(None) => {
+            write_log("GET /users/me - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("GET /users/me - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -126,11 +169,17 @@ async fn login_handler(
     // Extraer "mail" y "password" del body
     let mail = match body.get("mail").and_then(|v| v.as_str()) {
         Some(m) => m,
-        None => return HttpResponse::BadRequest().body("Falta el campo 'mail'"),
+        None => {
+            write_log("POST /users/login - Falta el campo 'mail'").ok();
+            return HttpResponse::BadRequest().body("Falta el campo 'mail'");
+        },
     };
     let password = match body.get("password").and_then(|v| v.as_str()) {
         Some(p) => p,
-        None => return HttpResponse::BadRequest().body("Falta el campo 'password'"),
+        None => {
+            write_log("POST /users/login - Falta el campo 'password'").ok();
+            return HttpResponse::BadRequest().body("Falta el campo 'password'");
+        },
     };
 
     // Cifrar la contraseña recibida
@@ -152,13 +201,20 @@ async fn login_handler(
                     }
                 }),
             );
+            write_log("POST /users/login - Login correcto").ok();
             HttpResponse::Ok().json(serde_json::json!({
                 "token": token,
                 "user": user
             }))
         }
-        Ok(None) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::NotFound().body("Usuario o contraseña erronea"),
+        Ok(None) => {
+            write_log("POST /users/login - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        }
+        Err(_) => {
+            write_log("POST /users/login - Usuario o contraseña erronea").ok();
+            HttpResponse::NotFound().body("Usuario o contraseña erronea")
+        },
     }
 }
 
@@ -172,12 +228,14 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
         .unwrap_or(None)
         .is_some()
     {
+        write_log("POST /users/register - El correo está en uso").ok();
         return HttpResponse::BadRequest().body("El correo está en uso");
     }
 
     // Valida que el correo cumpla con la expresión regular "^.+@.+$"
     let email_regex = Regex::new(r"^.+@.+$").expect("Failed to create regex");
     if !email_regex.is_match(&new_user.mail) {
+        write_log("POST /users/register - El correo no es válido").ok();
         return HttpResponse::BadRequest().body("El correo no es válido");
     }
 
@@ -194,12 +252,16 @@ async fn create_user_handler(db: web::Data<Database>, new_user: web::Json<User>)
                 result.inserted_id.as_object_id().unwrap().to_hex(),
                 "user".to_string()
             );
+            write_log("POST /users/register - Usuario registrado correctamente").ok();
             HttpResponse::Ok().json(serde_json::json!({
                 "token": token,
                 "user": user
             }))
         }
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, vuelva a intentarlo"),
+        Err(_) => {
+            write_log("POST /users/register - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, vuelva a intentarlo")
+        },
     }
 }
 
@@ -213,11 +275,15 @@ async fn patch_user_admin_handler(
     // Recupera las claims ya decodificadas
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("PATCH /users/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     // Verificar que es admin
     if claims.role != "admin" {
+        write_log("PATCH /users/{id} - Acceso no autorizado: se requiere administrador").ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
     }
 
@@ -225,7 +291,10 @@ async fn patch_user_admin_handler(
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("PATCH /users/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
 
     let mut set_doc = Document::new();
@@ -235,8 +304,14 @@ async fn patch_user_admin_handler(
     if let Some(value) = updated_user.get("name") {
         match value {
             serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
-            serde_json::Value::Null => return HttpResponse::BadRequest().body("'name' no puede ser null"),
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+            serde_json::Value::Null => {
+                write_log("PATCH /users/{id} - 'name' no puede ser null").ok();
+                return HttpResponse::BadRequest().body("'name' no puede ser null");
+            },
+            _ => {
+                write_log("PATCH /users/{id} - Valor inválido para 'name'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'name'");
+            },
         };
     }
 
@@ -247,8 +322,14 @@ async fn patch_user_admin_handler(
                 let hashed = hash_password(pass);
                 set_doc.insert("passwordHash", hashed);
             }
-            serde_json::Value::Null => return HttpResponse::BadRequest().body("'passwordHash' no puede ser null"),
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'passwordHash'"),
+            serde_json::Value::Null => {
+                write_log("PATCH /users/{id} - 'passwordHash' no puede ser null").ok();
+                return HttpResponse::BadRequest().body("'passwordHash' no puede ser null");
+            },
+            _ => {
+                write_log("PATCH /users/{id} - Valor inválido para 'passwordHash'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'passwordHash'");
+            },
         };
     }
 
@@ -257,12 +338,16 @@ async fn patch_user_admin_handler(
         match value {
             serde_json::Value::Bool(b) => set_doc.insert("admin", *b),
             serde_json::Value::Null => unset_doc.insert("admin", ""),
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'admin'"),
+            _ => {
+                write_log("PATCH /users/{id} - Valor inválido para 'admin'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'admin'");
+            },
         };
     }
 
     // Validar que haya algo que actualizar
     if set_doc.is_empty() && unset_doc.is_empty() {
+        write_log("PATCH /users/{id} - No hay campos para actualizar").ok();
         return HttpResponse::BadRequest().body("No hay campos para actualizar");
     }
 
@@ -275,9 +360,18 @@ async fn patch_user_admin_handler(
     }
 
     match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Usuario actualizado"),
-        Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente"),
+        Ok(result) if result.matched_count == 1 => {
+            write_log("PATCH /users/{id} - Usuario actualizado").ok();
+            HttpResponse::Ok().body("Usuario actualizado")
+        },
+        Ok(_) => {
+            write_log("PATCH /users/{id} - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("PATCH /users/{id} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente")
+        },
     }
 }
 
@@ -290,13 +384,19 @@ async fn patch_user_me_handler(
     // Recupera las claims ya decodificadas
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("PATCH /users/me - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     let collection = db.collection::<User>("users");
     let obj_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("PATCH /users/me - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
 
     let mut set_doc = Document::new();
@@ -305,8 +405,14 @@ async fn patch_user_me_handler(
     if let Some(value) = updated_user.get("name") {
         match value {
             serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
-            serde_json::Value::Null => return HttpResponse::BadRequest().body("'name' no puede ser null"),
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
+            serde_json::Value::Null => {
+                write_log("PATCH /users/me - 'name' no puede ser null").ok();
+                return HttpResponse::BadRequest().body("'name' no puede ser null");
+            },
+            _ => {
+                write_log("PATCH /users/me - Valor inválido para 'name'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'name'");
+            },
         };
     }
 
@@ -317,22 +423,38 @@ async fn patch_user_me_handler(
                 let hashed = hash_password(pass);
                 set_doc.insert("passwordHash", hashed);
             }
-            serde_json::Value::Null => return HttpResponse::BadRequest().body("'passwordHash' no puede ser null"),
-            _ => return HttpResponse::BadRequest().body("Valor inválido para 'passwordHash'"),
+            serde_json::Value::Null => {
+                write_log("PATCH /users/me - 'passwordHash' no puede ser null").ok();
+                return HttpResponse::BadRequest().body("'passwordHash' no puede ser null");
+            },
+            _ => {
+                write_log("PATCH /users/me - Valor inválido para 'passwordHash'").ok();
+                return HttpResponse::BadRequest().body("Valor inválido para 'passwordHash'");
+            },
         };
     }
 
     // Validar que haya algo que actualizar
     if set_doc.is_empty() {
+        write_log("PATCH /users/me - No hay campos para actualizar").ok();
         return HttpResponse::BadRequest().body("No hay campos para actualizar");
     }
 
     let update_doc = doc! {"$set": set_doc};
 
     match collection.update_one(doc! {"_id": obj_id}, update_doc).await {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Usuario actualizado"),
-        Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente"),
+        Ok(result) if result.matched_count == 1 => {
+            write_log("PATCH /users/me - Usuario actualizado").ok();
+            HttpResponse::Ok().body("Usuario actualizado")
+        },
+        Ok(_) => {
+            write_log("PATCH /users/me - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("PATCH /users/me - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo nuevamente")
+        },
     }
 }
 
@@ -341,33 +463,55 @@ pub async fn delete_user(db: &Database, user_id: String) -> HttpResponse {
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("DELETE /users/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
 
     let user_group_cursor = match user_group_collection.find(doc! {"userId":obj_id}).await {
         Ok(user_group) => user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /users/{id} - Error buscando relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let users_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(user_group) => user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /users/{id} - Error recogiendo relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     for user_group in users_groups {
         let id = match user_group.id {
             Some(id) => id,
-            None => return HttpResponse::BadRequest().body("No hay ID"),
+            None => {
+                write_log("DELETE /users/{id} - Relación sin ID").ok();
+                return HttpResponse::BadRequest().body("No hay ID");
+            },
         };
         print!("{:?}", id);
         let res = delete_user_group(db, id.to_string()).await;
         if !res.status().is_success() {
+            write_log("DELETE /users/{id} - Error eliminando relación").ok();
             return res; // Si falla, detenemos la ejecución y devolvemos el error
         }
     }
 
     match item_collection.delete_one(doc! {"_id": obj_id}).await {
-        Ok(result) if result.deleted_count == 1 => HttpResponse::Ok().body("Usuario eliminado"),
-        Ok(_) => HttpResponse::NotFound().body("Usuario no encontrado"),
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(result) if result.deleted_count == 1 => {
+            write_log("DELETE /users/{id} - Usuario eliminado correctamente").ok();
+            HttpResponse::Ok().body("Usuario eliminado")
+        },
+        Ok(_) => {
+            write_log("DELETE /users/{id} - Usuario no encontrado").ok();
+            HttpResponse::NotFound().body("Usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("DELETE /users/{id} - Error inesperado").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     }
 }
 
@@ -379,11 +523,15 @@ async fn delete_user_admin_handler(
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("DELETE /users/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     // Verificar que es admin
     if claims.role != "admin" {
+        write_log("DELETE /users/{id} - Acceso no autorizado: se requiere administrador").ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
     }
 
@@ -391,7 +539,10 @@ async fn delete_user_admin_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /users/{id} - Error iniciando sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
 
     session.start_transaction().await.ok();
@@ -399,8 +550,10 @@ async fn delete_user_admin_handler(
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log("DELETE /users/{id} - Transacción confirmada").ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log("DELETE /users/{id} - Transacción abortada").ok();
     }
     response
 }
@@ -412,13 +565,19 @@ async fn delete_user_me_handler(
 ) -> impl Responder {
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("DELETE /users/me - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /users/me - Error iniciando sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
 
     session.start_transaction().await.ok();
@@ -426,8 +585,10 @@ async fn delete_user_me_handler(
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log("DELETE /users/me - Transacción confirmada").ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log("DELETE /users/me - Transacción abortada").ok();
     }
     response
 }

@@ -7,6 +7,7 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 
 use crate::entities::{group::Group, user::User};
+use crate::log::write_log;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserGroup {
@@ -32,12 +33,19 @@ async fn get_users_groups_handler(db: web::Data<Database>) -> impl Responder {
     let collection = db.collection::<UserGroup>("userGroup");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /user-group-relationships - Error buscando relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let user_groups: Vec<UserGroup> = match cursor.try_collect().await {
         Ok(users_groups) => users_groups,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /user-group-relationships - Error recogiendo relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
+    write_log(&format!("GET /user-group-relationships - {} relaciones recuperadas", user_groups.len())).ok();
     HttpResponse::Ok().json(user_groups)
 }
 #[get("/user-group-relationship/{id}")]
@@ -48,12 +56,24 @@ async fn get_user_group_handler(
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(obj_id) => obj_id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /user-group-relationship/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
-        Ok(Some(user_group)) => return HttpResponse::Ok().json(user_group),
-        Ok(None) => return HttpResponse::NotFound().body("grupo-usuario no encontrado"),
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+        Ok(Some(user_group)) => {
+            write_log("GET /user-group-relationship/{id} - Relación encontrada").ok();
+            return HttpResponse::Ok().json(user_group)
+        },
+        Ok(None) => {
+            write_log("GET /user-group-relationship/{id} - Relación no encontrada").ok();
+            return HttpResponse::NotFound().body("grupo-usuario no encontrado")
+        },
+        Err(e) => {
+            write_log(&format!("GET /user-group-relationship/{} - Error: {}", obj_id, e)).ok();
+            HttpResponse::BadRequest().body(e.to_string())
+        },
     }
 }
 
@@ -65,20 +85,35 @@ async fn get_user_group_id_handler(
     let (user_id_str, group_id_str) = path.into_inner();
     let user_id = match ObjectId::parse_str(&user_id_str) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        Err(_) => {
+            write_log("GET /user-group-relationship/find/{userId}/{groupId} - ID de usuario inválido").ok();
+            return HttpResponse::BadRequest().body("ID de usuario inválido");
+        },
     };
     let group_id = match ObjectId::parse_str(&group_id_str) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de grupo inválido"),
+        Err(_) => {
+            write_log("GET /user-group-relationship/find/{userId}/{groupId} - ID de grupo inválido").ok();
+            return HttpResponse::BadRequest().body("ID de grupo inválido");
+        },
     };
     let collection = db.collection::<UserGroup>("userGroup");
     match collection
         .find_one(doc! {"userId": user_id, "groupId": group_id})
         .await
     {
-        Ok(Some(user_group)) => HttpResponse::Ok().json(user_group.id.unwrap()),
-        Ok(None) => HttpResponse::NotFound().body("No se encontró registro para el user-group"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(Some(user_group)) => {
+            write_log("GET /user-group-relationship/find/{userId}/{groupId} - Relación encontrada").ok();
+            HttpResponse::Ok().json(user_group.id.unwrap())
+        },
+        Ok(None) => {
+            write_log("GET /user-group-relationship/find/{userId}/{groupId} - Relación no encontrada").ok();
+            HttpResponse::NotFound().body("No se encontró registro para el user-group")
+        },
+        Err(_) => {
+            write_log("GET /user-group-relationship/find/{userId}/{groupId} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -90,15 +125,24 @@ async fn get_users_from_group_handler(
     let user_group_collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("GET /groups/{id}/users - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     let user_group_cursor = match user_group_collection.find(doc! {"groupId":obj_id}).await {
         Ok(cursor_user_group) => cursor_user_group,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /groups/{id}/users - Error buscando relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     let user_group: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(users) => users,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /groups/{id}/users - Error recogiendo relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
 
     let users_id: Vec<ObjectId> = user_group.iter().map(|u| u.user_id).collect();
@@ -109,13 +153,16 @@ async fn get_users_from_group_handler(
             Ok(Some(user)) => users.push(user),
             Ok(None) => continue,
             Err(_) => {
+                write_log("GET /groups/{id}/users - Error buscando usuario").ok();
                 return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
             }
         }
     }
     if users.is_empty() {
+        write_log("GET /groups/{id}/users - No hay usuarios asociados a ese grupo").ok();
         return HttpResponse::BadRequest().body("no hay usarios asociados a ese grupo");
     }
+    write_log(&format!("GET /groups/{{id}}/users - {} usuarios recuperados", users.len())).ok();
     HttpResponse::Ok().json(users)
 }
 
@@ -127,26 +174,38 @@ async fn get_groups_from_user_handler(
 
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /users/me/groups - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
     
 
     // Se utiliza el campo 'sub' directamente, asumiendo que se generó como hexadecimal puro.
     let user_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID de usuario inválido"),
+        Err(_) => {
+            write_log("GET /users/me/groups - ID de usuario inválido").ok();
+            return HttpResponse::BadRequest().body("ID de usuario inválido");
+        },
     };
 
     let user_group_collection = db.collection::<UserGroup>("userGroup");
 
     let user_group_cursor = match user_group_collection.find(doc! {"userId": user_id}).await {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /users/me/groups - Error buscando relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
 
     let user_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(groups) => groups,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("GET /users/me/groups - Error recogiendo relaciones").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
 
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
@@ -157,13 +216,16 @@ async fn get_groups_from_user_handler(
             Ok(Some(group)) => groups.push(group),
             Ok(None) => continue,
             Err(_) => {
+                write_log("GET /users/me/groups - Error buscando grupo").ok();
                 return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
             }
         }
     }
     if groups.is_empty() {
+        write_log("GET /users/me/groups - No hay grupos asociados a ese usuario").ok();
         return HttpResponse::BadRequest().body("No hay grupos asociados a ese usuario");
     }
+    write_log(&format!("GET /users/me/groups - {} grupos recuperados", groups.len())).ok();
     HttpResponse::Ok().json(groups)
 }
 
@@ -177,8 +239,14 @@ async fn create_user_group_handler(
     let mut user_group = new_user_group.into_inner();
     user_group.id = None;
     match collection.insert_one(user_group).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(result) => {
+            write_log("POST /user-group-relationships - Relación creada correctamente").ok();
+            HttpResponse::Ok().json(result.inserted_id)
+        },
+        Err(_) => {
+            write_log("POST /user-group-relationships - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 // seguramente no se use con opción de borrar
@@ -191,7 +259,10 @@ async fn patch_user_group_handler(
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(&path.into_inner()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("PATCH /user-group-relationships/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     let update_doc = doc! {
         "$set": {
@@ -204,10 +275,17 @@ async fn patch_user_group_handler(
         .await
     {
         Ok(result) if result.matched_count == 1 => {
+            write_log("PATCH /user-group-relationships/{id} - Relación actualizada").ok();
             HttpResponse::Ok().body("grupo usuario actualizado")
         }
-        Ok(_) => HttpResponse::NotFound().body("Grupo usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(_) => {
+            write_log("PATCH /user-group-relationships/{id} - Relación no encontrada").ok();
+            HttpResponse::NotFound().body("Grupo usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("PATCH /user-group-relationships/{id} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -219,15 +297,20 @@ async fn delete_user_group_handler(
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /user-group-relationships/{id} - Error iniciando sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     session.start_transaction().await.ok();
     let response = delete_user_group(&db, path.into_inner()).await;
 
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log("DELETE /user-group-relationships/{id} - Transacción confirmada").ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log("DELETE /user-group-relationships/{id} - Transacción abortada").ok();
     }
 
     response
@@ -237,14 +320,24 @@ pub async fn delete_user_group(db: &Database, user_group_id: String) -> HttpResp
     let collection = db.collection::<UserGroup>("userGroup");
     let obj_id = match ObjectId::parse_str(user_group_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log("DELETE /user-group-relationships/{id} - ID inválido").ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(result) if result.deleted_count == 1 => {
+            write_log("DELETE /user-group-relationships/{id} - Relación eliminada correctamente").ok();
             HttpResponse::Ok().body("grupo usuario eliminado")
         }
-        Ok(_) => HttpResponse::NotFound().body("grupo usuario no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(_) => {
+            write_log("DELETE /user-group-relationships/{id} - Relación no encontrada").ok();
+            HttpResponse::NotFound().body("grupo usuario no encontrado")
+        },
+        Err(_) => {
+            write_log("DELETE /user-group-relationships/{id} - Error inesperado").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 

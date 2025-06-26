@@ -5,6 +5,7 @@ use mongodb::{
     Database,
 };
 use serde::{Deserialize, Serialize};
+use crate::log::write_log;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
@@ -45,42 +46,60 @@ async fn get_items_handler(
     db: web::Data<Database>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Recupera las claims inyectadas por el middleware
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
         Some(claims) => claims,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        None => {
+            write_log("GET /items - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
-
-    // Solo el admin puede obtener todos los items
     if claims.role != "admin" {
+        write_log(&format!("GET /items - Acceso denegado para usuario {}", claims.sub)).ok();
         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
     }
-
     let collection = db.collection::<Item>("items");
     let cursor = match collection.find(doc! {}).await {
         Ok(cursor) => cursor,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            write_log(&format!("GET /items - Error en find para usuario {}: {}", claims.sub, e)).ok();
+            return HttpResponse::InternalServerError().body(e.to_string());
+        },
     };
-
     let items: Vec<Item> = match cursor.try_collect().await {
         Ok(items) => items,
-        Err(e) => return HttpResponse::InternalServerError().body(e.to_string()),
+        Err(e) => {
+            write_log(&format!("GET /items - Error en try_collect para usuario {}: {}", claims.sub, e)).ok();
+            return HttpResponse::InternalServerError().body(e.to_string());
+        },
     };
-
+    write_log(&format!("GET /items - usuario {} obtuvo {} items", claims.sub, items.len())).ok();
     HttpResponse::Ok().json(items)
 }
 
 #[get("/items/{id}")]
 async fn get_item_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Item>("items");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+    let id_str = path.into_inner();
+    let obj_id = match ObjectId::parse_str(&id_str) {
         Ok(obj_id) => obj_id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log(&format!("GET /items/{{id}} - ID inválido: {}", id_str)).ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
-        Ok(Some(item)) => return HttpResponse::Ok().json(item),
-        Ok(None) => return HttpResponse::NotFound().body("Objeto no encontrado"),
-        Err(e) => HttpResponse::BadRequest().body(e.to_string()),
+        Ok(Some(item)) => {
+            write_log(&format!("GET /items/{{id}} - Item encontrado: {:?}", item)).ok();
+            HttpResponse::Ok().json(item)
+        },
+        Ok(None) => {
+            write_log(&format!("GET /items/{{id}} - Objeto no encontrado: {}", obj_id)).ok();
+            HttpResponse::NotFound().body("Objeto no encontrado")
+        },
+        Err(e) => {
+            write_log(&format!("GET /items/{{id}} - Error: {}", e)).ok();
+            HttpResponse::BadRequest().body(e.to_string())
+        },
     }
 }
 
@@ -90,23 +109,29 @@ async fn get_items_from_zone_handler(
     path: web::Path<String>,
     req: HttpRequest,
 ) -> impl Responder {
-    // Recupera las claims inyectadas por el middleware
     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(c) => c,
-        None => return HttpResponse::Unauthorized().body("Token no encontrado"),
+        Some(claims) => claims,
+        None => {
+            write_log("GET /items/zone/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
     };
 
-    let zone_id = match ObjectId::parse_str(&path.into_inner()) {
+    let zone_id_str = path.into_inner();
+    let zone_id = match ObjectId::parse_str(&zone_id_str) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log(&format!("GET /items/zone/{{id}} - ID inválido: {}", zone_id_str)).ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
-
-    // Convertir el id del usuario (claims.sub) a ObjectId
     let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("Token user ID inválido"),
+        Err(_) => {
+            write_log(&format!("GET /items/zone/{{id}} - Token user ID inválido: {}", claims.sub)).ok();
+            return HttpResponse::BadRequest().body("Token user ID inválido");
+        },
     };
-
     let items_collection = db.collection::<Item>("items");
     let cursor = match items_collection
         .find(doc! {
@@ -118,14 +143,19 @@ async fn get_items_from_zone_handler(
         }).await
     {
         Ok(cursor) => cursor,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log(&format!("GET /items/zone/{{id}} - Error inesperado para usuario {} y zona {}", claims.sub, zone_id)).ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
-
     let items: Vec<Item> = match cursor.try_collect().await {
         Ok(items) => items,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log(&format!("GET /items/zone/{{id}} - Error inesperado para usuario {} y zona {}", claims.sub, zone_id)).ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
-
+    write_log(&format!("GET /items/zone/{{id}} - usuario {} obtuvo {} items de la zona {}", claims.sub, items.len(), zone_id)).ok();
     HttpResponse::Ok().json(items)
 }
 
@@ -135,8 +165,14 @@ async fn create_item_handler(db: web::Data<Database>, new_item: web::Json<Item>)
     let mut item = new_item.into_inner();
     item.id = None;
     match collection.insert_one(item).await {
-        Ok(result) => HttpResponse::Ok().json(result.inserted_id),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(result) => {
+            write_log(&format!("POST /items - Item creado correctamente: {:?}", result.inserted_id)).ok();
+            HttpResponse::Ok().json(result.inserted_id)
+        },
+        Err(_) => {
+            write_log("POST /items - Error inesperado al crear item").ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
@@ -147,15 +183,16 @@ async fn patch_item_handler(
     updated_item: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let collection = db.collection::<Item>("items");
-    let obj_id = match ObjectId::parse_str(&path.into_inner()) {
+    let id_str = path.into_inner();
+    let obj_id = match ObjectId::parse_str(&id_str) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("ID inválido"),
+        Err(_) => {
+            write_log(&format!("PATCH /items/{{id}} - ID inválido: {}", id_str)).ok();
+            return HttpResponse::BadRequest().body("ID inválido");
+        },
     };
-
     let mut set_doc = Document::new();
     let mut unset_doc = Document::new();
-
-    // Campo: name (solo si está presente con valor)
     if let Some(value) = updated_item.get("name") {
         match value {
             serde_json::Value::String(name) => set_doc.insert("name", name.clone()),
@@ -163,8 +200,6 @@ async fn patch_item_handler(
             _ => return HttpResponse::BadRequest().body("Valor inválido para 'name'"),
         };
     }
-
-    // Campo opcional: description
     if let Some(value) = updated_item.get("description") {
         match value {
             serde_json::Value::String(desc) => set_doc.insert("description", desc.clone()),
@@ -172,8 +207,6 @@ async fn patch_item_handler(
             _ => return HttpResponse::BadRequest().body("Valor inválido para 'description'"),
         };
     }
-
-    // Campo opcional: pictureUrl
     if let Some(value) = updated_item.get("pictureUrl") {
         match value {
             serde_json::Value::String(url) => set_doc.insert("pictureUrl", url.clone()),
@@ -181,8 +214,6 @@ async fn patch_item_handler(
             _ => return HttpResponse::BadRequest().body("Valor inválido para 'pictureUrl'"),
         };
     }
-
-    // Campo opcional: tags
     if let Some(value) = updated_item.get("tags") {
         match value {
             serde_json::Value::Array(tags) => {
@@ -196,13 +227,9 @@ async fn patch_item_handler(
             _ => return HttpResponse::BadRequest().body("Valor inválido para 'tags'"),
         };
     }
-
-    // Validar que haya algo que actualizar
     if set_doc.is_empty() && unset_doc.is_empty() {
         return HttpResponse::BadRequest().body("No hay campos para actualizar");
     }
-
-    // Construir update_doc final
     let mut update_doc = Document::new();
     if !set_doc.is_empty() {
         update_doc.insert("$set", set_doc);
@@ -210,46 +237,67 @@ async fn patch_item_handler(
     if !unset_doc.is_empty() {
         update_doc.insert("$unset", unset_doc);
     }
-
     match collection
         .update_one(doc! {"_id": obj_id}, update_doc)
         .await
     {
-        Ok(result) if result.matched_count == 1 => HttpResponse::Ok().body("Objeto actualizado"),
-        Ok(_) => HttpResponse::NotFound().body("Objeto no encontrado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(result) if result.matched_count == 1 => {
+            write_log(&format!("PATCH /items/{{id}} - Objeto actualizado: {}", obj_id)).ok();
+            HttpResponse::Ok().body("Objeto actualizado")
+        },
+        Ok(_) => {
+            write_log(&format!("PATCH /items/{{id}} - Objeto no encontrado: {}", obj_id)).ok();
+            HttpResponse::NotFound().body("Objeto no encontrado")
+        },
+        Err(_) => {
+            write_log(&format!("PATCH /items/{{id}} - Error inesperado al actualizar objeto: {}", obj_id)).ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
 
 pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
     let collection = db.collection::<Item>("items");
-    let obj_id = match ObjectId::parse_str(item_id) {
+    let obj_id = match ObjectId::parse_str(item_id.clone()) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().body("Id incorrecto"),
+        Err(_) => {
+            write_log(&format!("DELETE /items/{{id}} - Id incorrecto: {}", item_id)).ok();
+            return HttpResponse::BadRequest().body("Id incorrecto");
+        },
     };
     match collection.delete_one(doc! {"_id": obj_id}).await {
-        Ok(_) => HttpResponse::Ok().body("Item Eliminado"),
-        Err(_) => HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Ok(_) => {
+            write_log(&format!("DELETE /items/{{id}} - Item eliminado: {}", item_id)).ok();
+            HttpResponse::Ok().body("Item Eliminado")
+        },
+        Err(_) => {
+            write_log(&format!("DELETE /items/{{id}} - Error inesperado al eliminar item: {}", item_id)).ok();
+            HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
+        },
     }
 }
 
 #[delete("/items/{id}")]
 async fn delete_item_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+    let item_id = path.into_inner();
     let client = db.client();
     let mut session = match client.start_session().await {
         Ok(s) => s,
-        Err(_) => return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente"),
+        Err(_) => {
+            write_log("DELETE /items/{id} - Error inesperado al iniciar sesión").ok();
+            return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+        },
     };
     session.start_transaction().await.ok();
-    let response = delete_item(&db, path.into_inner()).await;
-
+    let response = delete_item(&db, item_id.clone()).await;
     if response.status().is_success() {
         session.commit_transaction().await.ok();
+        write_log(&format!("DELETE /items/{{id}} - Item {} eliminado correctamente", item_id)).ok();
     } else {
         session.abort_transaction().await.ok();
+        write_log(&format!("DELETE /items/{{id}} - Error al eliminar item {}", item_id)).ok();
     }
-
     response
 }
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
