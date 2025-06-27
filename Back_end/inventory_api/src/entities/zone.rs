@@ -135,26 +135,21 @@ async fn get_zone_from_parent_handler(
         },
     };
 
-    // Obtener los ítems de todas las zonas encontradas
-    let child_zone_ids: Vec<_> = zones.iter().filter_map(|z| z.id.clone()).collect();
-    let items: Vec<crate::entities::item::Item> = if child_zone_ids.is_empty() {
-        vec![]
-    } else {
-        let items_collection = db.collection::<crate::entities::item::Item>("items");
-        let items_cursor = match items_collection.find(doc! { "zoneId": { "$in": child_zone_ids } }).await {
-            Ok(cursor) => cursor,
-            Err(_) => {
-                write_log("GET /zones/parent/{id} - Error al obtener ítems").ok();
-                return HttpResponse::BadRequest().body("Error al obtener ítems");
-            },
-        };
-        match items_cursor.try_collect().await {
-            Ok(items) => items,
-            Err(_) => {
-                write_log("GET /zones/parent/{id} - Error al procesar ítems").ok();
-                return HttpResponse::BadRequest().body("Error al procesar ítems");
-            },
-        }
+    // Obtener los ítems de la zona proporcionada (parent_id)
+    let items_collection = db.collection::<crate::entities::item::Item>("items");
+    let items_cursor = match items_collection.find(doc! { "zoneId": parent_id.clone() }).await {
+        Ok(cursor) => cursor,
+        Err(_) => {
+            write_log("GET /zones/parent/{id} - Error al obtener ítems").ok();
+            return HttpResponse::BadRequest().body("Error al obtener ítems");
+        },
+    };
+    let items: Vec<crate::entities::item::Item> = match items_cursor.try_collect().await {
+        Ok(items) => items,
+        Err(_) => {
+            write_log("GET /zones/parent/{id} - Error al procesar ítems").ok();
+            return HttpResponse::BadRequest().body("Error al procesar ítems");
+        },
     };
 
     // Retornar zonas e ítems en la respuesta
