@@ -407,6 +407,33 @@ pub async fn delete_zone(db: &Database, zone_id: String) -> HttpResponse {
     }
 }
 
+// Función auxiliar para obtener todos los IDs de zonas hijas recursivamente
+async fn get_all_child_zone_ids(db: &Database, parent_id: &ObjectId) -> Vec<ObjectId> {
+    let mut all_ids = Vec::new();
+    let zone_collection = db.collection::<Zone>("zones");
+    let mut stack = vec![parent_id.clone()];
+    while let Some(current_id) = stack.pop() {
+        // Buscar zonas hijas directas
+        if let Ok(mut cursor) = zone_collection.find(doc! {"parentZoneId": &current_id}).await {
+            while let Some(result) = cursor.try_next().await.transpose() {
+                match result {
+                    Ok(child_zone) => {
+                        if let Some(child_id) = child_zone.id.clone() {
+                            stack.push(child_id.clone());
+                            all_ids.push(child_id);
+                        }
+                    }
+                    Err(_) => {
+                        // Puedes registrar el error si lo deseas
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    all_ids
+}
+
 #[delete("/zones/{id}")]
 async fn delete_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let client = db.client();
@@ -418,15 +445,40 @@ async fn delete_zone_handler(db: web::Data<Database>, path: web::Path<String>) -
         },
     };
     session.start_transaction().await.ok();
-    let response = delete_zone(&db, path.into_inner()).await;
+    let id_str = path.into_inner();
+    let obj_id = match ObjectId::parse_str(&id_str) {
+        Ok(id) => id,
+        Err(_) => {
+            write_log("DELETE /zones/{id} - Id incorrecto").ok();
+            session.abort_transaction().await.ok();
+            return HttpResponse::BadRequest().body("Id incorrecto");
+        },
+    };
 
-    if response.status().is_success() {
-        session.commit_transaction().await.ok();
-        write_log("DELETE /zones/{id} - Transacción confirmada").ok();
-    } else {
+    // Obtener todos los IDs de zonas hijas recursivamente
+    let mut all_zone_ids = get_all_child_zone_ids(&db, &obj_id).await;
+    // Incluir la zona original
+    all_zone_ids.push(obj_id.clone());
+
+    // Eliminar todas las zonas (y sus ítems) en orden inverso (de hojas a raíz)
+    let mut error_response = None;
+    for zone_id in all_zone_ids.iter().rev() {
+        let res = delete_zone(&db, zone_id.to_hex()).await;
+        if !res.status().is_success() {
+            error_response = Some(res);
+            break;
+        }
+    }
+
+    let response = if let Some(err) = error_response {
         session.abort_transaction().await.ok();
         write_log("DELETE /zones/{id} - Transacción abortada").ok();
-    }
+        err
+    } else {
+        session.commit_transaction().await.ok();
+        write_log("DELETE /zones/{id} - Transacción confirmada").ok();
+        HttpResponse::Ok().body("Zona y subzonas eliminadas")
+    };
 
     response
 }

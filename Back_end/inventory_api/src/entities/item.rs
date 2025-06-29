@@ -258,6 +258,8 @@ async fn patch_item_handler(
 
 
 pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
+    use std::path::Path;
+    use std::fs;
     let collection = db.collection::<Item>("items");
     let obj_id = match ObjectId::parse_str(item_id.clone()) {
         Ok(id) => id,
@@ -266,6 +268,31 @@ pub async fn delete_item(db: &Database, item_id: String) -> HttpResponse {
             return HttpResponse::BadRequest().body("Id incorrecto");
         },
     };
+    // Buscar el item antes de eliminarlo
+    let item = match collection.find_one(doc! {"_id": obj_id.clone()}).await {
+        Ok(Some(item)) => item,
+        Ok(None) => {
+            write_log(&format!("DELETE /items/{{id}} - Item no encontrado: {}", item_id)).ok();
+            return HttpResponse::NotFound().body("Item no encontrado");
+        },
+        Err(e) => {
+            write_log(&format!("DELETE /items/{{id}} - Error buscando item: {}: {}", item_id, e)).ok();
+            return HttpResponse::InternalServerError().body("Error buscando item");
+        },
+    };
+    // Si tiene imagen, eliminar el archivo
+    if let Some(picture_url) = &item.picture_url {
+        let image_path = Path::new("images").join(picture_url);
+        if image_path.exists() {
+            if let Err(e) = fs::remove_file(&image_path) {
+                write_log(&format!("DELETE /items/{{id}} - Error eliminando imagen '{}': {}", picture_url, e)).ok();
+                // No retornamos error, solo lo registramos
+            } else {
+                write_log(&format!("DELETE /items/{{id}} - Imagen '{}' eliminada", picture_url)).ok();
+            }
+        }
+    }
+    // Eliminar el item de la base de datos
     match collection.delete_one(doc! {"_id": obj_id}).await {
         Ok(_) => {
             write_log(&format!("DELETE /items/{{id}} - Item eliminado: {}", item_id)).ok();
