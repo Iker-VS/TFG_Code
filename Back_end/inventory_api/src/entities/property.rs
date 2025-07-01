@@ -139,16 +139,18 @@ async fn get_properties_from_group_handler(
     };
 
     let properties_collection = db.collection::<Property>("properties");
-    let cursor = match properties_collection
-        .find(doc! {
+    let filter = if claims.role == "admin" {
+        doc! { "groupId": group_id }
+    } else {
+        doc! {
             "groupId": group_id,
             "$or": [
                 { "userId": { "$exists": false } },
                 { "userId": token_user_obj_id }
             ]
-        })
-        .await
-    {
+        }
+    };
+    let cursor = match properties_collection.find(filter).await {
         Ok(cursor) => cursor,
         Err(_) => {
             write_log("GET /properties/group/{id} - Error inesperado").ok();

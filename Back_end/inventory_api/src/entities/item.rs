@@ -133,15 +133,18 @@ async fn get_items_from_zone_handler(
         },
     };
     let items_collection = db.collection::<Item>("items");
-    let cursor = match items_collection
-        .find(doc! {
+    let filter = if claims.role == "admin" {
+        doc! { "zoneId": zone_id }
+    } else {
+        doc! {
             "zoneId": zone_id,
             "$or": [
                 { "userId": { "$exists": false } },
                 { "userId": token_user_obj_id }
             ]
-        }).await
-    {
+        }
+    };
+    let cursor = match items_collection.find(filter).await {
         Ok(cursor) => cursor,
         Err(_) => {
             write_log(&format!("GET /items/zone/{{id}} - Error inesperado para usuario {} y zona {}", claims.sub, zone_id)).ok();

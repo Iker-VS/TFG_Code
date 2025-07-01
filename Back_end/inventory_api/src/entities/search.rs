@@ -28,6 +28,7 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
     let search_str = name.into_inner().to_lowercase();
     let claims = req.extensions().get::<crate::middleware::auth::Claims>().unwrap().clone();
     let user_id = ObjectId::parse_str(&claims.sub).unwrap();
+    let is_admin = claims.role == "admin";
 
     let mut groups_res = Vec::new();
     let mut properties_res = Vec::new();
@@ -69,10 +70,7 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
     for gid in group_ids {
         let prop_filter = doc! {
             "groupId": gid.clone(),
-            "$or": [
-                { "userId": { "$exists": false } },
-                { "userId": user_id.clone() }
-            ]
+            // No filtrar por userId si es admin
         };
         if let Ok(prop_cursor) = property_coll.find(prop_filter).await {
             let props: Vec<Property> = match prop_cursor.try_collect().await {
@@ -80,10 +78,12 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
                 Err(_) => Vec::new(),
             };
             for prop in props {
-                // Si la propiedad es privada (es decir, tiene user_id) y no coincide con el token, se omite
-                if let Some(prop_owner) = &prop.user_id {
-                    if *prop_owner != user_id {
-                        continue;
+                // Si NO es admin, omitir privadas ajenas
+                if !is_admin {
+                    if let Some(prop_owner) = &prop.user_id {
+                        if *prop_owner != user_id {
+                            continue;
+                        }
                     }
                 }
                 if prop.name.to_lowercase().contains(&search_str) {
@@ -107,10 +107,12 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
                 Err(_) => Vec::new(),
             };
             for zone in zones {
-                // Si la zona es privada (tiene un user_id) y no coincide con el token, se omite
-                if let Some(zone_owner) = &zone.user_id {
-                    if *zone_owner != user_id {
-                        continue;
+                // Si NO es admin, omitir privadas ajenas
+                if !is_admin {
+                    if let Some(zone_owner) = &zone.user_id {
+                        if *zone_owner != user_id {
+                            continue;
+                        }
                     }
                 }
                 if zone.name.to_lowercase().contains(&search_str) {

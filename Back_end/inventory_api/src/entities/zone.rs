@@ -106,7 +106,8 @@ async fn get_zone_handler(db: web::Data<Database>, path: web::Path<String>) -> i
 #[get("/zones/parent/{id}")]
 async fn get_zone_from_parent_handler(
     db: web::Data<Database>,
-    path: web::Path<String>
+    path: web::Path<String>,
+    req: HttpRequest,
 ) -> impl Responder {
 
     // Parsear parent_id desde la ruta
@@ -118,9 +119,23 @@ async fn get_zone_from_parent_handler(
         },
     };
 
+    // Recupera las claims inyectadas por el middleware
+    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+        Some(claims) => claims,
+        None => {
+            write_log("GET /zones/parent/{id} - Token no encontrado").ok();
+            return HttpResponse::Unauthorized().body("Token no encontrado");
+        },
+    };
+
     // Buscar todas las zonas cuyo parentZoneId sea igual a parent_id
     let zone_collection = db.collection::<Zone>("zones");
-    let zone_cursor = match zone_collection.find(doc! { "parentZoneId": parent_id }).await {
+    let zone_filter = if claims.role == "admin" {
+        doc! { "parentZoneId": parent_id }
+    } else {
+        doc! { "parentZoneId": parent_id, "$or": [ { "userId": { "$exists": false } }, { "userId": &claims.sub } ] }
+    };
+    let zone_cursor = match zone_collection.find(zone_filter).await {
         Ok(cursor) => cursor,
         Err(_) => {
             write_log("GET /zones/parent/{id} - Error al obtener zonas").ok();
@@ -137,7 +152,12 @@ async fn get_zone_from_parent_handler(
 
     // Obtener los ítems de la zona proporcionada (parent_id)
     let items_collection = db.collection::<crate::entities::item::Item>("items");
-    let items_cursor = match items_collection.find(doc! { "zoneId": parent_id.clone() }).await {
+    let items_filter = if claims.role == "admin" {
+        doc! { "zoneId": parent_id.clone() }
+    } else {
+        doc! { "zoneId": parent_id.clone(), "$or": [ { "userId": { "$exists": false } }, { "userId": &claims.sub } ] }
+    };
+    let items_cursor = match items_collection.find(items_filter).await {
         Ok(cursor) => cursor,
         Err(_) => {
             write_log("GET /zones/parent/{id} - Error al obtener ítems").ok();
