@@ -6,7 +6,7 @@ use mongodb::Database;
 use std::fs;
 use std::path::Path;
 
-use crate::entities::item::Item;
+
 use crate::log::write_log;
 
 #[get("/image/{filename}")]
@@ -35,7 +35,10 @@ pub async fn get_image_by_name_handler(path: web::Path<String>) -> impl Responde
 }
 
 #[post("/image")]
-pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>) -> impl Responder {
+pub async fn post_image_handler(
+    mut payload: Multipart,
+    db: web::Data<Database>,
+) -> impl Responder {
     let mut object_id: Option<String> = None;
     let mut file_bytes: Option<bytes::BytesMut> = None;
     while let Some(item) = payload.next().await {
@@ -100,16 +103,23 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
             return HttpResponse::BadRequest().body("objectID inválido");
         },
     };
-    let items_collection = db.collection::<Item>("items");
-    match items_collection
+    let items_collection = db.collection::<mongodb::bson::Document>("items");
+    let existing_item = match items_collection
         .find_one(doc! {"_id": item_obj_id.clone()})
         .await
     {
-        Ok(Some(_)) => { /* Item encontrado */ }
+        Ok(Some(doc)) => doc,
         _ => {
             write_log(&format!("POST /image - Item no encontrado: {}", oid_str)).ok();
             return HttpResponse::BadRequest().body("Item no encontrado");
         },
+    };
+    // Eliminar imagen anterior si existe
+    if let Some(old_pic) = existing_item.get_str("pictureUrl").ok() {
+        let old_file_path = Path::new("images").join(old_pic);
+        if old_file_path.exists() {
+            let _ = fs::remove_file(old_file_path);
+        }
     }
     let images_dir = Path::new("images");
     if !images_dir.exists() {
@@ -134,8 +144,8 @@ pub async fn post_image_handler(mut payload: Multipart, db: web::Data<Database>)
         write_log(&format!("POST /image - Error actualizando item: {}", file_name)).ok();
         return HttpResponse::InternalServerError().body("Error actualizando item");
     }
-    write_log(&format!("POST /image - Imagen guardada correctamente: {} ({} bytes)", file_name, file_data.len())).ok();
-    HttpResponse::Ok().body("Imagen guardada")
+    write_log(&format!("POST /image - Imagen actualizada correctamente: {} ({} bytes)", file_name, file_data.len())).ok();
+    HttpResponse::Ok().body("Imagen actualizada")
 }
 
 #[patch("/image/{id}")]
