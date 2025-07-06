@@ -5,7 +5,7 @@ use crate::entities::{ancestors, group, image, item, property, search, tree, use
 pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
     ancestors::configure_routes(cfg);
     group::configure_routes(cfg);
-    image::configure_routes(cfg);
+    //image::configure_routes(cfg);
     item::configure_routes(cfg);
     property::configure_routes(cfg);
     search::configure_routes(cfg);
@@ -17,5 +17,5 @@ pub fn configure_private_routes(cfg: &mut web::ServiceConfig) {
 }
 pub fn configure_public_routes(cfg: &mut web::ServiceConfig){
     user::configure_public_routes(cfg);
-    //image::configure_routes(cfg); 
+    image::configure_routes(cfg); 
 }

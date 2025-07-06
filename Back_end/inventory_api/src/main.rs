@@ -47,7 +47,7 @@ async fn main() -> std::io::Result<()> {
                     .configure(routes::configure_private_routes),
             )
     })
-    .bind(("127.0.0.1", 8000))? //127.0.0.1 or 172.30.188.140
+    .bind(("192.168.1.142", 8000))? //127.0.0.1 or 172.30.188.140
     .run()
     .await;
 

@@ -1,7 +1,7 @@
 use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
-    bson::{self, doc, oid::ObjectId},
+    bson::{doc, oid::ObjectId},
     Database,
 };
 use rand::Rng;
@@ -34,8 +34,6 @@ pub struct Group {
     pub user_count: i32,
     #[serde(rename = "groupCode")]
     pub group_code: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
 }
 
 impl Group {
@@ -201,7 +199,7 @@ async fn create_group_handler(
         user_max: new_group.user_max,
         user_count: 1,
         group_code: group_code.clone(),
-        tags: None,
+        // tags eliminado
     };
     let group_result = match collection.insert_one(group).await {
         Ok(result) => result,
@@ -379,16 +377,6 @@ async fn patch_group(
                 }
                 update_set.insert("userMax", user_max_val);
             }
-        }
-        None => {}
-    }
-
-    match updated_group.get("tags") {
-        Some(val) if val.is_null() => {
-            update_unset.insert("tags", "");
-        }
-        Some(val) => {
-            update_set.insert("tags", bson::to_bson(val).unwrap());
         }
         None => {}
     }
