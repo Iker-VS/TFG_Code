@@ -181,7 +181,33 @@ async fn get_groups_from_user_handler(
     };
     
 
-    // Se utiliza el campo 'sub' directamente, asumiendo que se generó como hexadecimal puro.
+    // Si es admin, devolver todos los grupos
+    let group_collection = db.collection::<Group>("groups");
+    if claims.role == "admin" {
+        // Admin: devolver todos los grupos
+        let cursor = match group_collection.find(doc! {}).await {
+            Ok(cursor) => cursor,
+            Err(_) => {
+                write_log("GET /users/me/groups - Error buscando todos los grupos").ok();
+                return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+            },
+        };
+        let groups: Vec<Group> = match cursor.try_collect().await {
+            Ok(groups) => groups,
+            Err(_) => {
+                write_log("GET /users/me/groups - Error recogiendo todos los grupos").ok();
+                return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
+            },
+        };
+        if groups.is_empty() {
+            write_log("GET /users/me/groups - No hay grupos en la base de datos").ok();
+            return HttpResponse::BadRequest().body("No hay grupos en la base de datos");
+        }
+        write_log(&format!("GET /users/me/groups - {} grupos recuperados (admin)", groups.len())).ok();
+        return HttpResponse::Ok().json(groups);
+    }
+
+    // Si no es admin, devolver solo los grupos del usuario
     let user_id = match ObjectId::parse_str(&claims.sub) {
         Ok(id) => id,
         Err(_) => {
@@ -189,9 +215,7 @@ async fn get_groups_from_user_handler(
             return HttpResponse::BadRequest().body("ID de usuario inválido");
         },
     };
-
     let user_group_collection = db.collection::<UserGroup>("userGroup");
-
     let user_group_cursor = match user_group_collection.find(doc! {"userId": user_id}).await {
         Ok(cursor) => cursor,
         Err(_) => {
@@ -199,7 +223,6 @@ async fn get_groups_from_user_handler(
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
         },
     };
-
     let user_groups: Vec<UserGroup> = match user_group_cursor.try_collect().await {
         Ok(groups) => groups,
         Err(_) => {
@@ -207,10 +230,8 @@ async fn get_groups_from_user_handler(
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
         },
     };
-
     let group_ids: Vec<ObjectId> = user_groups.iter().map(|ug| ug.group_id).collect();
     let mut groups: Vec<Group> = Vec::new();
-    let group_collection = db.collection::<Group>("groups");
     for id in group_ids {
         match group_collection.find_one(doc! {"_id": id}).await {
             Ok(Some(group)) => groups.push(group),

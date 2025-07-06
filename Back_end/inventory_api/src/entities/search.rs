@@ -35,31 +35,54 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
     let mut zones_res = Vec::new();
     let mut items_res = Vec::new();
 
-    // Paso 1: Obtener todos los grupos del usuario
     let mut group_ids = Vec::new();
-    let user_group_coll = db.collection::<UserGroup>("userGroup");
-    let filter = doc! { "userId": user_id.clone() };
-    let usergroups_cursor = match user_group_coll.find(filter).await {
-        Ok(cursor) => cursor,
-        Err(e) => {
-            write_log(&format!("GET /search/{{name}} - Error buscando userGroup: {}", e)).ok();
-            return HttpResponse::InternalServerError().body(e.to_string());
-        },
-    };
-    let user_groups: Vec<UserGroup> = match usergroups_cursor.try_collect().await {
-        Ok(ugs) => ugs,
-        Err(e) => {
-            write_log(&format!("GET /search/{{name}} - Error recogiendo userGroup: {}", e)).ok();
-            return HttpResponse::InternalServerError().body(e.to_string());
-        },
-    };
     let group_coll = db.collection::<Group>("groups");
-    for ug in user_groups {
-        if let Ok(Some(group)) = group_coll.find_one(doc! { "_id": &ug.group_id }).await {
-            // Guardar group_id para siguiente paso
+    if is_admin {
+        // Admin: puede ver todos los grupos
+        let group_cursor = match group_coll.find(doc! {}).await {
+            Ok(cursor) => cursor,
+            Err(e) => {
+                write_log(&format!("GET /search/{{name}} - Error buscando grupos (admin): {}", e)).ok();
+                return HttpResponse::InternalServerError().body(e.to_string());
+            },
+        };
+        let all_groups: Vec<Group> = match group_cursor.try_collect().await {
+            Ok(gs) => gs,
+            Err(e) => {
+                write_log(&format!("GET /search/{{name}} - Error recogiendo grupos (admin): {}", e)).ok();
+                return HttpResponse::InternalServerError().body(e.to_string());
+            },
+        };
+        for group in all_groups {
             if let Some(gid) = group.id.clone() { group_ids.push(gid); }
             if group.name.to_lowercase().contains(&search_str) {
                 groups_res.push(group);
+            }
+        }
+    } else {
+        // Usuario normal: solo sus grupos
+        let user_group_coll = db.collection::<UserGroup>("userGroup");
+        let filter = doc! { "userId": user_id.clone() };
+        let usergroups_cursor = match user_group_coll.find(filter).await {
+            Ok(cursor) => cursor,
+            Err(e) => {
+                write_log(&format!("GET /search/{{name}} - Error buscando userGroup: {}", e)).ok();
+                return HttpResponse::InternalServerError().body(e.to_string());
+            },
+        };
+        let user_groups: Vec<UserGroup> = match usergroups_cursor.try_collect().await {
+            Ok(ugs) => ugs,
+            Err(e) => {
+                write_log(&format!("GET /search/{{name}} - Error recogiendo userGroup: {}", e)).ok();
+                return HttpResponse::InternalServerError().body(e.to_string());
+            },
+        };
+        for ug in user_groups {
+            if let Ok(Some(group)) = group_coll.find_one(doc! { "_id": &ug.group_id }).await {
+                if let Some(gid) = group.id.clone() { group_ids.push(gid); }
+                if group.name.to_lowercase().contains(&search_str) {
+                    groups_res.push(group);
+                }
             }
         }
     }
@@ -68,10 +91,7 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
     let mut property_ids = Vec::new();
     let property_coll = db.collection::<Property>("properties");
     for gid in group_ids {
-        let prop_filter = doc! {
-            "groupId": gid.clone(),
-            // No filtrar por userId si es admin
-        };
+        let prop_filter = doc! { "groupId": gid.clone() };
         if let Ok(prop_cursor) = property_coll.find(prop_filter).await {
             let props: Vec<Property> = match prop_cursor.try_collect().await {
                 Ok(ps) => ps,
@@ -86,6 +106,7 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
                         }
                     }
                 }
+                // Si es admin, ve todo
                 if prop.name.to_lowercase().contains(&search_str) {
                     properties_res.push(prop.clone());
                 }
@@ -115,6 +136,7 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
                         }
                     }
                 }
+                // Si es admin, ve todo
                 if zone.name.to_lowercase().contains(&search_str) {
                     zones_res.push(zone.clone());
                 }
