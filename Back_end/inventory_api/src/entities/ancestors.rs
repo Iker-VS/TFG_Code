@@ -4,12 +4,15 @@ use mongodb::Database;
 use serde_json::json;
 
 use crate::entities::group::Group;
+use crate::entities::item::Item;
 use crate::entities::property::Property;
 use crate::entities::zone::Zone;
-use crate::entities::item::Item;
 
 #[get("/ancestors/{id}")]
-pub async fn get_ancestors_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
+pub async fn get_ancestors_handler(
+    db: web::Data<Database>,
+    path: web::Path<String>,
+) -> impl Responder {
     let id_str = path.into_inner();
     let obj_id = match ObjectId::parse_str(&id_str) {
         Ok(id) => id,
@@ -70,7 +73,10 @@ pub async fn get_ancestors_handler(db: web::Data<Database>, path: web::Path<Stri
         }
         // La última zona (la que cumple parent_zone_id == property_id) se usa solo para obtener la propiedad
         if let Ok(Some(last_zone)) = zones_coll.find_one(doc! {"_id": zone_id.clone()}).await {
-            if let Ok(Some(prop)) = props_coll.find_one(doc! {"_id": last_zone.property_id.clone()}).await {
+            if let Ok(Some(prop)) = props_coll
+                .find_one(doc! {"_id": last_zone.property_id.clone()})
+                .await
+            {
                 property = Some(prop.clone());
             }
         }
@@ -85,7 +91,10 @@ pub async fn get_ancestors_handler(db: web::Data<Database>, path: web::Path<Stri
 
     // Paso 5: Buscar grupo si se tiene propiedad
     if let Some(ref prop) = property {
-        if let Ok(Some(gr)) = groups_coll.find_one(doc! {"_id": prop.group_id.clone()}).await {
+        if let Ok(Some(gr)) = groups_coll
+            .find_one(doc! {"_id": prop.group_id.clone()})
+            .await
+        {
             group = Some(gr);
         }
     }

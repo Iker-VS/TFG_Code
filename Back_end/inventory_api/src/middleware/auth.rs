@@ -14,7 +14,7 @@ use std::{
 /// Middleware de autenticación.
 pub struct AuthMiddleware;
 
-#[derive(Debug, serde::Deserialize, serde::Serialize,Clone)]
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct Claims {
     pub sub: String,
     exp: usize,
@@ -74,7 +74,8 @@ where
             ) {
                 Ok(data) => {
                     let mut claims = data.claims;
-                    claims.sub = claims.sub
+                    claims.sub = claims
+                        .sub
                         .strip_prefix("ObjectId(")
                         .and_then(|s| s.strip_suffix(")"))
                         .unwrap_or(&claims.sub)
@@ -110,7 +111,7 @@ where
 }
 
 /// Función para generar un token a partir de un usuario.
-pub fn generate_token(user_id: String, role:String ) -> String {
+pub fn generate_token(user_id: String, role: String) -> String {
     let clave = env::var("API_KEY").unwrap_or_else(|_| "clave_secreta".into());
     let exp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -118,7 +119,11 @@ pub fn generate_token(user_id: String, role:String ) -> String {
         .as_secs() as usize
         + 3600;
 
-    let claims = Claims { sub: user_id, exp, role };
+    let claims = Claims {
+        sub: user_id,
+        exp,
+        role,
+    };
     encode(
         &Header::default(),
         &claims,

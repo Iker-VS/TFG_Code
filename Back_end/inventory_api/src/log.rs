@@ -1,9 +1,9 @@
 use chrono::Local;
-use std::fs::{OpenOptions, create_dir_all};
+use once_cell::sync::Lazy;
+use std::fs::{create_dir_all, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 static LOG_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 

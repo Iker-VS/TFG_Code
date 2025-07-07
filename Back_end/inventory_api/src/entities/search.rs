@@ -1,18 +1,14 @@
+use crate::log::write_log;
 use actix_web::{get, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId},
     Database,
 };
-use futures_util::stream::TryStreamExt;
 use serde::Serialize;
-use crate::log::write_log;
 
 use crate::entities::{
-    group::Group,
-    property::Property,
-    zone::Zone,
-    item::Item,
-    user_group::UserGroup,
+    group::Group, item::Item, property::Property, user_group::UserGroup, zone::Zone,
 };
 
 #[derive(Serialize)]
@@ -24,9 +20,17 @@ struct SearchResponse {
 }
 
 #[get("/search/{name}")]
-pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: web::Path<String>) -> impl Responder {
+pub async fn search_endpoint(
+    db: web::Data<Database>,
+    req: HttpRequest,
+    name: web::Path<String>,
+) -> impl Responder {
     let search_str = name.into_inner().to_lowercase();
-    let claims = req.extensions().get::<crate::middleware::auth::Claims>().unwrap().clone();
+    let claims = req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .unwrap()
+        .clone();
     let user_id = ObjectId::parse_str(&claims.sub).unwrap();
     let is_admin = claims.role == "admin";
 
@@ -42,19 +46,29 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
         let group_cursor = match group_coll.find(doc! {}).await {
             Ok(cursor) => cursor,
             Err(e) => {
-                write_log(&format!("GET /search/{{name}} - Error buscando grupos (admin): {}", e)).ok();
+                write_log(&format!(
+                    "GET /search/{{name}} - Error buscando grupos (admin): {}",
+                    e
+                ))
+                .ok();
                 return HttpResponse::InternalServerError().body(e.to_string());
-            },
+            }
         };
         let all_groups: Vec<Group> = match group_cursor.try_collect().await {
             Ok(gs) => gs,
             Err(e) => {
-                write_log(&format!("GET /search/{{name}} - Error recogiendo grupos (admin): {}", e)).ok();
+                write_log(&format!(
+                    "GET /search/{{name}} - Error recogiendo grupos (admin): {}",
+                    e
+                ))
+                .ok();
                 return HttpResponse::InternalServerError().body(e.to_string());
-            },
+            }
         };
         for group in all_groups {
-            if let Some(gid) = group.id.clone() { group_ids.push(gid); }
+            if let Some(gid) = group.id.clone() {
+                group_ids.push(gid);
+            }
             if group.name.to_lowercase().contains(&search_str) {
                 groups_res.push(group);
             }
@@ -66,20 +80,30 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
         let usergroups_cursor = match user_group_coll.find(filter).await {
             Ok(cursor) => cursor,
             Err(e) => {
-                write_log(&format!("GET /search/{{name}} - Error buscando userGroup: {}", e)).ok();
+                write_log(&format!(
+                    "GET /search/{{name}} - Error buscando userGroup: {}",
+                    e
+                ))
+                .ok();
                 return HttpResponse::InternalServerError().body(e.to_string());
-            },
+            }
         };
         let user_groups: Vec<UserGroup> = match usergroups_cursor.try_collect().await {
             Ok(ugs) => ugs,
             Err(e) => {
-                write_log(&format!("GET /search/{{name}} - Error recogiendo userGroup: {}", e)).ok();
+                write_log(&format!(
+                    "GET /search/{{name}} - Error recogiendo userGroup: {}",
+                    e
+                ))
+                .ok();
                 return HttpResponse::InternalServerError().body(e.to_string());
-            },
+            }
         };
         for ug in user_groups {
             if let Ok(Some(group)) = group_coll.find_one(doc! { "_id": &ug.group_id }).await {
-                if let Some(gid) = group.id.clone() { group_ids.push(gid); }
+                if let Some(gid) = group.id.clone() {
+                    group_ids.push(gid);
+                }
                 if group.name.to_lowercase().contains(&search_str) {
                     groups_res.push(group);
                 }
@@ -171,12 +195,17 @@ pub async fn search_endpoint(db: web::Data<Database>, req: HttpRequest, name: we
         items: items_res,
     };
 
-    write_log(&format!("GET /search/{{name}} - Búsqueda realizada: grupos={}, propiedades={}, zonas={}, items={}",
-        response.groups.len(), response.properties.len(), response.zones.len(), response.items.len())).ok();
+    write_log(&format!(
+        "GET /search/{{name}} - Búsqueda realizada: grupos={}, propiedades={}, zonas={}, items={}",
+        response.groups.len(),
+        response.properties.len(),
+        response.zones.len(),
+        response.items.len()
+    ))
+    .ok();
     HttpResponse::Ok().json(response)
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(search_endpoint);
 }
-

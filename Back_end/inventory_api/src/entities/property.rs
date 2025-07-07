@@ -1,4 +1,4 @@
-use actix_web::{delete, get, post, patch, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{delete, get, patch, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     bson::{doc, oid::ObjectId, Document},
@@ -37,47 +37,47 @@ pub struct Property {
 //         }
 //     }
 // }
+//deprecated
+// #[get("/properties")]
+// async fn get_properties_handler(
+//     db: web::Data<Database>,
+//     req: HttpRequest,
+// ) -> impl Responder {
+//     // Recupera las claims inyectadas por el middleware
+//     let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+//         Some(claims) => claims,
+//         None => {
+//             write_log("GET /properties - Token no encontrado").ok();
+//             return HttpResponse::Unauthorized().body("Token no encontrado");
+//         },
+//     };
 
-#[get("/properties")]
-async fn get_properties_handler(
-    db: web::Data<Database>,
-    req: HttpRequest,
-) -> impl Responder {
-    // Recupera las claims inyectadas por el middleware
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
-        Some(claims) => claims,
-        None => {
-            write_log("GET /properties - Token no encontrado").ok();
-            return HttpResponse::Unauthorized().body("Token no encontrado");
-        },
-    };
+//     // Solo el admin puede obtener todas las propiedades
+//     if claims.role != "admin" {
+//         write_log("GET /properties - Acceso no autorizado: se requiere administrador").ok();
+//         return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
+//     }
 
-    // Solo el admin puede obtener todas las propiedades
-    if claims.role != "admin" {
-        write_log("GET /properties - Acceso no autorizado: se requiere administrador").ok();
-        return HttpResponse::Unauthorized().body("Acceso no autorizado: se requiere administrador");
-    }
+//     let collection = db.collection::<Property>("properties");
+//     let cursor = match collection.find(doc! {}).await {
+//         Ok(cursor) => cursor,
+//         Err(e) => {
+//             write_log(&format!("GET /properties - Error: {}", e)).ok();
+//             return HttpResponse::InternalServerError().body(e.to_string());
+//         },
+//     };
 
-    let collection = db.collection::<Property>("properties");
-    let cursor = match collection.find(doc! {}).await {
-        Ok(cursor) => cursor,
-        Err(e) => {
-            write_log(&format!("GET /properties - Error: {}", e)).ok();
-            return HttpResponse::InternalServerError().body(e.to_string());
-        },
-    };
+//     let properties: Vec<Property> = match cursor.try_collect().await {
+//         Ok(properties) => properties,
+//         Err(e) => {
+//             write_log(&format!("GET /properties - Error: {}", e)).ok();
+//             return HttpResponse::InternalServerError().body(e.to_string());
+//         },
+//     };
 
-    let properties: Vec<Property> = match cursor.try_collect().await {
-        Ok(properties) => properties,
-        Err(e) => {
-            write_log(&format!("GET /properties - Error: {}", e)).ok();
-            return HttpResponse::InternalServerError().body(e.to_string());
-        },
-    };
-
-    write_log(&format!("GET /properties - {} propiedades recuperadas", properties.len())).ok();
-    HttpResponse::Ok().json(properties)
-}
+//     write_log(&format!("GET /properties - {} propiedades recuperadas", properties.len())).ok();
+//     HttpResponse::Ok().json(properties)
+// }
 #[get("/properties/{id}")]
 async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) -> impl Responder {
     let collection = db.collection::<Property>("properties");
@@ -86,21 +86,21 @@ async fn get_property_handler(db: web::Data<Database>, path: web::Path<String>) 
         Err(_) => {
             write_log("GET /properties/{id} - ID inválido").ok();
             return HttpResponse::BadRequest().body("ID inválido");
-        },
+        }
     };
     match collection.find_one(doc! {"_id":obj_id}).await {
         Ok(Some(property)) => {
             write_log("GET /properties/{id} - Propiedad encontrada").ok();
-            return HttpResponse::Ok().json(property)
-        },
+            return HttpResponse::Ok().json(property);
+        }
         Ok(None) => {
             write_log("GET /properties/{id} - Propiedad no encontrada").ok();
-            return HttpResponse::NotFound().body("propiedad no encontrada")
-        },
+            return HttpResponse::NotFound().body("propiedad no encontrada");
+        }
         Err(e) => {
             write_log(&format!("GET /properties/{} - Error: {}", obj_id, e)).ok();
             HttpResponse::BadRequest().body(e.to_string())
-        },
+        }
     }
 }
 #[get("/properties/group/{id}")]
@@ -119,7 +119,7 @@ async fn get_properties_from_group_handler(
         None => {
             write_log("GET /properties/group/{id} - Token no encontrado").ok();
             return HttpResponse::Unauthorized().body("Token no encontrado");
-        },
+        }
     };
 
     let group_id = match ObjectId::parse_str(&path.into_inner()) {
@@ -127,7 +127,7 @@ async fn get_properties_from_group_handler(
         Err(_) => {
             write_log("GET /properties/group/{id} - ID inválido").ok();
             return HttpResponse::BadRequest().body("ID inválido");
-        },
+        }
     };
 
     let token_user_obj_id = match ObjectId::parse_str(&claims.sub) {
@@ -135,7 +135,7 @@ async fn get_properties_from_group_handler(
         Err(_) => {
             write_log("GET /properties/group/{id} - Token user ID inválido").ok();
             return HttpResponse::BadRequest().body("Token user ID inválido");
-        },
+        }
     };
 
     let properties_collection = db.collection::<Property>("properties");
@@ -155,7 +155,7 @@ async fn get_properties_from_group_handler(
         Err(_) => {
             write_log("GET /properties/group/{id} - Error inesperado").ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
-        },
+        }
     };
 
     let properties: Vec<Property> = match cursor.try_collect().await {
@@ -163,10 +163,14 @@ async fn get_properties_from_group_handler(
         Err(_) => {
             write_log("GET /properties/group/{id} - Error inesperado").ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
-        },
+        }
     };
 
-    write_log(&format!("GET /properties/group/{{id}} - {} propiedades recuperadas", properties.len())).ok();
+    write_log(&format!(
+        "GET /properties/group/{{id}} - {} propiedades recuperadas",
+        properties.len()
+    ))
+    .ok();
     HttpResponse::Ok().json(properties)
 }
 
@@ -176,12 +180,16 @@ async fn create_property_handler(
     new_property: web::Json<serde_json::Value>,
     req: HttpRequest,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
         Some(claims) => claims,
         None => {
             write_log("POST /properties - Token no encontrado").ok();
             return HttpResponse::Unauthorized().body("Token no encontrado");
-        },
+        }
     };
 
     let name = match new_property.get("name") {
@@ -190,16 +198,19 @@ async fn create_property_handler(
             None => {
                 write_log("POST /properties - El nombre debe ser una cadena de texto").ok();
                 return HttpResponse::BadRequest().body("El nombre debe ser una cadena de texto");
-            },
+            }
         },
         None => {
             write_log("POST /properties - El nombre es requerido").ok();
             return HttpResponse::BadRequest().body("El nombre es requerido");
-        },
+        }
     };
 
-    let direction = new_property.get("direction").and_then(|v| v.as_str()).map(String::from);
-    
+    let direction = new_property
+        .get("direction")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
     let group_id = match new_property.get("groupId") {
         Some(value) => match value.as_str() {
             Some(id) => match ObjectId::parse_str(id) {
@@ -207,20 +218,21 @@ async fn create_property_handler(
                 Err(_) => {
                     write_log("POST /properties - groupId inválido").ok();
                     return HttpResponse::BadRequest().body("groupId inválido");
-                },
+                }
             },
             None => {
                 write_log("POST /properties - groupId debe ser una cadena de texto").ok();
                 return HttpResponse::BadRequest().body("groupId debe ser una cadena de texto");
-            },
+            }
         },
         None => {
             write_log("POST /properties - groupId es requerido").ok();
             return HttpResponse::BadRequest().body("groupId es requerido");
-        },
+        }
     };
 
-    let is_private = new_property.get("private")
+    let is_private = new_property
+        .get("private")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
@@ -230,7 +242,7 @@ async fn create_property_handler(
             Err(_) => {
                 write_log("POST /properties - ID de usuario inválido").ok();
                 return HttpResponse::BadRequest().body("ID de usuario inválido");
-            },
+            }
         }
     } else {
         None
@@ -249,11 +261,11 @@ async fn create_property_handler(
         Ok(result) => {
             write_log("POST /properties - Propiedad creada correctamente").ok();
             HttpResponse::Ok().json(result.inserted_id)
-        },
+        }
         Err(_) => {
             write_log("POST /properties - Error inesperado").ok();
             HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
-        },
+        }
     }
 }
 
@@ -264,12 +276,16 @@ async fn patch_property_handler(
     updated_property: web::Json<serde_json::Value>,
     req: HttpRequest,
 ) -> impl Responder {
-    let claims = match req.extensions().get::<crate::middleware::auth::Claims>().cloned() {
+    let claims = match req
+        .extensions()
+        .get::<crate::middleware::auth::Claims>()
+        .cloned()
+    {
         Some(claims) => claims,
         None => {
             write_log("PATCH /properties/{id} - Token no encontrado").ok();
             return HttpResponse::Unauthorized().body("Token no encontrado");
-        },
+        }
     };
 
     let collection = db.collection::<Property>("properties");
@@ -278,7 +294,7 @@ async fn patch_property_handler(
         Err(_) => {
             write_log("PATCH /properties/{id} - ID inválido").ok();
             return HttpResponse::BadRequest().body("ID inválido");
-        },
+        }
     };
 
     let mut set_doc = Document::new();
@@ -291,11 +307,11 @@ async fn patch_property_handler(
             serde_json::Value::Null => {
                 write_log("PATCH /properties/{id} - 'name' no puede ser null").ok();
                 return HttpResponse::BadRequest().body("'name' no puede ser null");
-            },
+            }
             _ => {
                 write_log("PATCH /properties/{id} - Valor inválido para 'name'").ok();
                 return HttpResponse::BadRequest().body("Valor inválido para 'name'");
-            },
+            }
         };
     }
 
@@ -307,7 +323,7 @@ async fn patch_property_handler(
             _ => {
                 write_log("PATCH /properties/{id} - Valor inválido para 'direction'").ok();
                 return HttpResponse::BadRequest().body("Valor inválido para 'direction'");
-            },
+            }
         };
     }
 
@@ -317,20 +333,22 @@ async fn patch_property_handler(
             serde_json::Value::Bool(is_private) => {
                 if *is_private {
                     match ObjectId::parse_str(&claims.sub) {
-                        Ok(user_id) => { set_doc.insert("userId", user_id); },
+                        Ok(user_id) => {
+                            set_doc.insert("userId", user_id);
+                        }
                         Err(_) => {
                             write_log("PATCH /properties/{id} - ID de usuario inválido").ok();
                             return HttpResponse::BadRequest().body("ID de usuario inválido");
-                        },
+                        }
                     }
                 } else {
                     unset_doc.insert("userId", "");
                 }
-            },
+            }
             _ => {
                 write_log("PATCH /properties/{id} - Valor inválido para 'private'").ok();
                 return HttpResponse::BadRequest().body("Valor inválido para 'private'");
-            },
+            }
         }
     }
 
@@ -356,15 +374,15 @@ async fn patch_property_handler(
         Ok(result) if result.matched_count == 1 => {
             write_log("PATCH /properties/{id} - Propiedad actualizada").ok();
             HttpResponse::Ok().body("Propiedad actualizada")
-        },
+        }
         Ok(_) => {
             write_log("PATCH /properties/{id} - Propiedad no encontrada").ok();
             HttpResponse::NotFound().body("Propiedad no encontrada")
-        },
+        }
         Err(_) => {
             write_log("PATCH /properties/{id} - Error inesperado").ok();
             HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
-        },
+        }
     }
 }
 
@@ -376,7 +394,7 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
         Err(_) => {
             write_log("DELETE /properties/{id} - Id incorrecto").ok();
             return HttpResponse::BadRequest().body("Id incorrecto");
-        },
+        }
     };
 
     let zone_cursor = match zone_collection.find(doc! {"propertyId":obj_id}).await {
@@ -384,14 +402,14 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
         Err(_) => {
             write_log("DELETE /properties/{id} - Error buscando zonas").ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
-        },
+        }
     };
     let zones: Vec<Zone> = match zone_cursor.try_collect().await {
         Ok(zones) => zones,
         Err(_) => {
             write_log("DELETE /properties/{id} - Error recogiendo zonas").ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
-        },
+        }
     };
     for zone in zones {
         let id = match zone.id {
@@ -399,7 +417,7 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
             None => {
                 write_log("DELETE /properties/{id} - Zona sin ID").ok();
                 return HttpResponse::BadRequest().body("No hay ID");
-            },
+            }
         };
         let res = delete_zone(db, id.to_string()).await;
         if !res.status().is_success() {
@@ -412,11 +430,11 @@ pub async fn delete_property(db: &Database, property_id: String) -> HttpResponse
         Ok(_) => {
             write_log("DELETE /properties/{id} - Propiedad eliminada correctamente").ok();
             HttpResponse::Ok().body("Propiedad Eliminada")
-        },
+        }
         Err(_) => {
             write_log("DELETE /properties/{id} - Error eliminando propiedad").ok();
             HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente")
-        },
+        }
     }
 }
 
@@ -431,7 +449,7 @@ async fn delete_property_handler(
         Err(_) => {
             write_log("DELETE /properties/{id} - Error iniciando sesión").ok();
             return HttpResponse::BadRequest().body("Error inesperado, inténtelo  nuevamente");
-        },
+        }
     };
     session.start_transaction().await.ok();
     let response = delete_property(&db, path.into_inner()).await;
@@ -449,7 +467,7 @@ async fn delete_property_handler(
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_property_handler)
-        .service(get_properties_handler)
+        //.service(get_properties_handler)
         .service(get_properties_from_group_handler)
         .service(create_property_handler)
         .service(patch_property_handler)
